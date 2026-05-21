@@ -493,6 +493,7 @@ export async function createApp(options: AppOptions): Promise<express.Express> {
         dueScheduleStore,
         connectionsStore,
         notificationSender,
+        anthropicApiKey: config.anthropic.apiKey,
       }),
     );
   } else {
@@ -504,6 +505,7 @@ export async function createApp(options: AppOptions): Promise<express.Express> {
         dueScheduleStore,
         connectionsStore,
         notificationSender,
+        anthropicApiKey: config.anthropic.apiKey,
       }),
     );
   }

@@ -1093,6 +1093,26 @@ export function useEmailScanRuns(
   });
 }
 
+export function useRunEmailScanScheduleNow() {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (scheduleId: string) =>
+      client.runEmailScanScheduleNow(scheduleId),
+    onSuccess: (_run, scheduleId) => {
+      // The executor advances the schedule's lastRunAt / nextRunAt and
+      // writes a new run record. New `processed_emails` rows may also
+      // have landed if it found travel content. Invalidate the lot so
+      // the panel reflects every side effect.
+      queryClient.invalidateQueries({ queryKey: queryKeys.emailScanSchedules });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.emailScanRuns(scheduleId),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.processedEmails });
+    },
+  });
+}
+
 // ─── Calendar Sync (per-user) ─────────────────────────────
 
 /**

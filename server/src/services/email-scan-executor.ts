@@ -40,7 +40,8 @@ import { expandLabelFilters } from "./email-scan-label-expansion";
 import type { ProcessedEmail } from "./processed-email";
 import { NotificationSender } from "./notification-sender";
 import { recordParseFailure } from "./email-telemetry";
-import { reportError } from "./monitoring";
+import { reportError, reportMessage } from "./monitoring";
+import { debugEmailSchedule } from "../utils/debug-log";
 
 export interface EmailScanExecutorDeps {
   storage: StorageProvider;
@@ -118,10 +119,24 @@ export async function executeSchedule(
   await storage.saveEmailScanRun(run);
 
   const logPrefix = `[auto-scan ${schedule.userId} ${schedule.provider}${schedule.labelFilter ? `/${schedule.labelFilter}` : ""}]`;
+  debugEmailSchedule(
+    `${logPrefix} starting run ${run.id} (schedule ${schedule.id}, frequency ${schedule.frequency})`,
+  );
 
   const finishWith = async (
     status: "succeeded" | "failed",
-    extras: { scannedCount?: number; newCount?: number; errorMessage?: string },
+    extras: {
+      scannedCount?: number;
+      newCount?: number;
+      errorMessage?: string;
+      /**
+       * Optional thrown error that triggered this failure. When set the
+       * Sentry alert uses `reportError` (preserving the stack trace);
+       * otherwise we fall back to `reportMessage` so misconfiguration
+       * failures (no connector, no API key) still page operators.
+       */
+      cause?: unknown;
+    },
   ): Promise<ExecuteScheduleResult> => {
     const finished: EmailScanRun = {
       ...run,
@@ -146,6 +161,39 @@ export async function executeSchedule(
     };
     await storage.saveEmailScanSchedule(updatedSchedule);
 
+    debugEmailSchedule(
+      `${logPrefix} finished status=${status} scanned=${finished.scannedCount} new=${finished.newCount} nextRunAt=${updatedSchedule.nextRunAt}${extras.errorMessage ? ` error="${extras.errorMessage}"` : ""}`,
+    );
+
+    // Any failed scheduled run alerts Sentry so operators see broken
+    // accounts, missing API keys, and upstream mailbox errors without
+    // having to scrape Railway logs. Centralised here (rather than per-
+    // catch-block) so we can't add a new failure path that forgets to
+    // alert. Per-email parse exceptions are NOT a run-level failure —
+    // they're alerted separately inside the parse loop.
+    if (status === "failed") {
+      const alertContext = {
+        scheduleId: schedule.id,
+        runId: finished.id,
+        userId: schedule.userId,
+        provider: schedule.provider,
+        labelFilter: schedule.labelFilter,
+        errorMessage: extras.errorMessage,
+      };
+      if (extras.cause !== undefined) {
+        reportError(extras.cause, { source: "auto_scan", ...alertContext });
+      } else {
+        reportMessage("auto-scan:run-failed", {
+          level: "error",
+          tags: {
+            "auto-scan.source": "auto_scan",
+            "email.source": schedule.provider,
+          },
+          context: alertContext,
+        });
+      }
+    }
+
     return { run: finished, newCount: finished.newCount };
   };
 
@@ -163,9 +211,9 @@ export async function executeSchedule(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`${logPrefix} connector resolve threw:`, err);
-    reportError(err, { source: "auto_scan", phase: "connector-resolve" });
     return finishWith("failed", {
       errorMessage: `Couldn't resolve ${schedule.provider} mailbox connection: ${msg}`,
+      cause: err,
     });
   }
   if (!connector) {
@@ -214,9 +262,9 @@ export async function executeSchedule(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`${logPrefix} mailbox scan threw:`, err);
-    reportError(err, { source: "auto_scan", phase: "scan" });
     return finishWith("failed", {
       errorMessage: `Couldn't read the mailbox: ${msg}`,
+      cause: err,
     });
   }
   run.scannedCount = rawEmails.length;
@@ -358,7 +406,7 @@ export async function executeSchedule(
     }
   }
 
-  console.log(
+  debugEmailSchedule(
     `${logPrefix} done — scanned ${rawEmails.length}, parsed ${newProcessedRows.length}, ${newCount} new segment(s)`,
   );
 

@@ -745,6 +745,12 @@ export class ApiClient {
     return this.request(`/email-scan-schedules/${scheduleId}/runs`);
   }
 
+  runEmailScanScheduleNow(scheduleId: string): Promise<EmailScanRun> {
+    return this.request(`/email-scan-schedules/${scheduleId}/run`, {
+      method: "POST",
+    });
+  }
+
   // ─── Export ─────────────────────────────────────────────
 
   async exportOneNote(
