@@ -488,7 +488,7 @@ export class ApiClient {
    * `calendar` rows back the feature-gating decisions in the UI
    * (e.g. "should we offer the email-scan button at all?").
    */
-  listConnections(): Promise<{
+  listConnections(options?: { includeRevoked?: boolean }): Promise<{
     connections: Array<{
       id: string;
       provider: "google" | "microsoft";
@@ -501,7 +501,8 @@ export class ApiClient {
       updatedAt: string;
     }>;
   }> {
-    return this.request("/connections");
+    const qs = options?.includeRevoked ? "?includeRevoked=true" : "";
+    return this.request(`/connections${qs}`);
   }
 
   getPendingEmails(): Promise<{ results: EmailScanResult[] }> {

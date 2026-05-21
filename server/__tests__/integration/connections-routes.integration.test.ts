@@ -156,6 +156,58 @@ describe("/api/v1/connections", () => {
       expect(conn).not.toHaveProperty("accessTokenEncrypted");
     });
 
+    it("?includeRevoked=true surfaces revoked rows so the reconnect banner can detect them", async () => {
+      // Seed an active row and a revoked one on the same user. We
+      // revoke via DELETE — same code path the executor takes via
+      // store.markRevoked. Identity capability writes don't trigger
+      // Graph / tokeninfo probes, so this test stays mock-free.
+      await request(app)
+        .post("/api/v1/connections")
+        .set("x-test-user-id", USER_ID)
+        .send({
+          provider: "google",
+          capability: "identity",
+          accountEmail: "alice-active@example.com",
+        })
+        .expect(201);
+      const revokedRes = await request(app)
+        .post("/api/v1/connections")
+        .set("x-test-user-id", USER_ID)
+        .send({
+          provider: "microsoft",
+          capability: "identity",
+          accountEmail: "alice-revoked@example.com",
+        })
+        .expect(201);
+      await request(app)
+        .delete(`/api/v1/connections/${revokedRes.body.id}`)
+        .set("x-test-user-id", USER_ID)
+        .expect(200);
+
+      // Default: only the active row.
+      const defaultRes = await request(app)
+        .get("/api/v1/connections")
+        .set("x-test-user-id", USER_ID)
+        .expect(200);
+      expect(defaultRes.body.connections.map((c: { accountEmail: string }) => c.accountEmail))
+        .toEqual(["alice-active@example.com"]);
+
+      // ?includeRevoked=true: both, with the right statuses.
+      const allRes = await request(app)
+        .get("/api/v1/connections?includeRevoked=true")
+        .set("x-test-user-id", USER_ID)
+        .expect(200);
+      const byEmail = Object.fromEntries(
+        allRes.body.connections.map(
+          (c: { accountEmail: string; status: string }) => [c.accountEmail, c.status],
+        ),
+      );
+      expect(byEmail).toEqual({
+        "alice-active@example.com": "active",
+        "alice-revoked@example.com": "revoked",
+      });
+    });
+
     it("only returns the requesting user's rows", async () => {
       await request(app)
         .post("/api/v1/connections")

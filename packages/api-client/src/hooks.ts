@@ -53,6 +53,7 @@ export const queryKeys = {
   shared: (token: string) => ["shared", token] as const,
   gmailLabels: ["gmail", "labels"] as const,
   connections: ["connections"] as const,
+  connectionsAll: ["connections", "all"] as const,
   processedEmails: ["emails", "processed"] as const,
   pushConfig: ["push", "config"] as const,
   pushStatus: (endpoint?: string) =>
@@ -912,6 +913,25 @@ export function useConnections(enabled = true) {
   return useQuery({
     queryKey: queryKeys.connections,
     queryFn: () => client.listConnections(),
+    enabled,
+  });
+}
+
+/**
+ * Lists ALL the user's OAuth connections, including ones marked
+ * `revoked`. Drives the reconnect banner — when an upstream provider
+ * silently revokes the refresh token (Google's 7-day unverified-app
+ * expiry, user revoked at google.com/security, etc) the cron-tick
+ * executor flips the row to `revoked` and a scheduled scan starts
+ * failing. The banner reads this hook to detect those rows and
+ * surfaces a "Reconnect" CTA so the user doesn't have to discover
+ * the breakage by checking the run history.
+ */
+export function useConnectionsIncludingRevoked(enabled = true) {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: queryKeys.connectionsAll,
+    queryFn: () => client.listConnections({ includeRevoked: true }),
     enabled,
   });
 }
