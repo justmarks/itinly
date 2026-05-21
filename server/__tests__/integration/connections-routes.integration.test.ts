@@ -182,7 +182,7 @@ describe("/api/v1/connections", () => {
       await request(app)
         .delete(`/api/v1/connections/${revokedRes.body.id}`)
         .set("x-test-user-id", USER_ID)
-        .expect(200);
+        .expect(204);
 
       // Default: only the active row.
       const defaultRes = await request(app)
