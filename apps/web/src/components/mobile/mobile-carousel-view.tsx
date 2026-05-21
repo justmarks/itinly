@@ -161,7 +161,28 @@ export function MobileCarouselView({
     const idx = days.findIndex((d) => d.date === today);
     return idx >= 0 ? idx + 1 : 0;
   });
-  const [selectedSegment, setSelectedSegment] = useState<Segment | null>(null);
+  // Track the selected segment by id only — looking the segment back up
+  // from `days` on each render means optimistic cache updates (confirm,
+  // edit, etc) flow straight into the open detail sheet. Holding a
+  // snapshot of the segment in local state caused the sheet to keep
+  // rendering the stale `needsReview: true` row after a tap-to-confirm,
+  // which read as "no response" and trained users to tap repeatedly.
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(
+    null,
+  );
+  const selectedSegment = useMemo(
+    () =>
+      selectedSegmentId
+        ? days
+            .flatMap((d) => d.segments)
+            .find((s) => s.id === selectedSegmentId) ?? null
+        : null,
+    [days, selectedSegmentId],
+  );
+  const handleSelectSegment = useCallback(
+    (segment: Segment) => setSelectedSegmentId(segment.id),
+    [],
+  );
   const [formTarget, setFormTarget] = useState<SegmentFormTarget>(null);
   const [fullMapOpen, setFullMapOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -362,7 +383,7 @@ export function MobileCarouselView({
         <div className="flex h-full w-full shrink-0 snap-start snap-always flex-col overflow-y-auto">
           <MobileDaysList
             days={days}
-            onSelectSegment={setSelectedSegment}
+            onSelectSegment={handleSelectSegment}
             onAddSegment={
               canEdit
                 ? (date) => setFormTarget({ mode: "new", date })
@@ -430,7 +451,7 @@ export function MobileCarouselView({
                     <MobileSegmentCard
                       key={seg.id}
                       segment={seg}
-                      onSelect={setSelectedSegment}
+                      onSelect={handleSelectSegment}
                       onConfirm={onConfirmSegment}
                       showCosts={showCosts}
                     />
@@ -451,9 +472,9 @@ export function MobileCarouselView({
         date={segmentDate}
         showCosts={showCosts}
         canEdit={canEdit}
-        onClose={() => setSelectedSegment(null)}
+        onClose={() => setSelectedSegmentId(null)}
         onEdit={(seg, date) => {
-          setSelectedSegment(null);
+          setSelectedSegmentId(null);
           setFormTarget({ mode: "edit", segment: seg, date });
         }}
         onConfirm={onConfirmSegment}
