@@ -1110,7 +1110,7 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
 
   if (isLoading) {
     return (
-      <main className="min-h-screen p-8">
+      <main className="min-h-screen p-4 sm:p-8">
         <div className="mx-auto max-w-7xl space-y-6">
           <div className="h-8 w-48 animate-pulse rounded bg-muted" />
           <div className="h-64 animate-pulse rounded-xl border bg-muted" />
@@ -1125,7 +1125,7 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
     const is404 = error instanceof ApiError && error.status === 404;
     const showError = isError && !is404;
     return (
-      <main className="min-h-screen p-8">
+      <main className="min-h-screen p-4 sm:p-8">
         <div className="mx-auto max-w-7xl">
           <Link href={homeHref}>
             <Button variant="ghost" size="sm">
@@ -1178,7 +1178,7 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
 
   return (
     <RequireAuth>
-    <main className="flex h-screen flex-col p-8 print:h-auto print:block">
+    <main className="flex h-screen flex-col p-4 sm:p-8 print:h-auto print:block">
       <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col min-h-0 print:block">
 
         {/* Fixed header — back nav, title row, needs-review banner,
