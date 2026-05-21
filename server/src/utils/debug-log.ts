@@ -4,6 +4,14 @@
  * env var to "1" when actively diagnosing a specific subsystem:
  *
  *   DEBUG_EMAIL_SCAN=1   — Gmail/Outlook fetch, parse, dedup, apply
+ *   DEBUG_EMAIL_SCHEDULE=1 — scheduled email-scan lifecycle: cron
+ *                          tick fan-out, schedules picked up, per-
+ *                          schedule start / finish, cadence advance.
+ *                          Run-level failures alert Sentry directly
+ *                          (and `console.error`) so this knob is
+ *                          only for tracking the *happy path*
+ *                          (success / "nothing new") without it
+ *                          flooding Railway logs.
  *   DEBUG_CONNECTIONS=1  — `/api/v1/connections` upsert / refresh-
  *                          token preservation tracing
  *   DEBUG_CALENDAR=1     — calendar-list 403 scope-introspection
@@ -31,6 +39,7 @@
  * a Microsoft row," "Graph rejected the token").
  */
 const DEBUG_EMAIL_SCAN = process.env.DEBUG_EMAIL_SCAN === "1";
+const DEBUG_EMAIL_SCHEDULE = process.env.DEBUG_EMAIL_SCHEDULE === "1";
 const DEBUG_CONNECTIONS = process.env.DEBUG_CONNECTIONS === "1";
 const DEBUG_CALENDAR = process.env.DEBUG_CALENDAR === "1";
 const DEBUG_TIMEZONES = process.env.DEBUG_TIMEZONES === "1";
@@ -38,6 +47,12 @@ const DEBUG_AUTH = process.env.DEBUG_AUTH === "1";
 
 export function debugEmailScan(...args: unknown[]): void {
   if (DEBUG_EMAIL_SCAN) {
+    console.log(...args);
+  }
+}
+
+export function debugEmailSchedule(...args: unknown[]): void {
+  if (DEBUG_EMAIL_SCHEDULE) {
     console.log(...args);
   }
 }

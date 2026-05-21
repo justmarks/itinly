@@ -2344,4 +2344,10 @@ export class MockApiClient extends ApiClient {
   override listEmailScanRuns() {
     return Promise.resolve([]);
   }
+
+  override runEmailScanScheduleNow() {
+    return Promise.reject(
+      new Error("Demo mode can't run real scans — sign in with a real account."),
+    );
+  }
 }
