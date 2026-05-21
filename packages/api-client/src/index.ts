@@ -38,6 +38,7 @@ export {
   useSharedTrip,
   useGmailLabels,
   useConnections,
+  useConnectionsIncludingRevoked,
   usePendingEmails,
   useScanEmails,
   useStreamingScanEmails,

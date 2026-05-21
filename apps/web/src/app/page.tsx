@@ -8,6 +8,7 @@ import { HtmlImportDialog } from "@/components/html-import-dialog";
 import { XlsxImportDialog } from "@/components/xlsx-import-dialog";
 import { TripList } from "@/components/trip-list";
 import { AutoScanBanner } from "@/components/auto-scan-banner";
+import { ConnectionRevokedBanner } from "@/components/connection-revoked-banner";
 import { RequireAuth } from "@/components/require-auth";
 import { UserMenu } from "@/components/user-menu";
 import { AppLogo } from "@/components/app-logo";
@@ -136,6 +137,7 @@ export default function Home(): React.JSX.Element {
               <UserMenu />
             </div>
           </div>
+          <ConnectionRevokedBanner variant="desktop" />
           <AutoScanBanner href="/" variant="desktop" />
           <TripList />
         </div>
