@@ -8,6 +8,7 @@ import {
   useEmailScanRuns,
   useEmailScanSchedules,
   useGmailLabels,
+  useRunEmailScanScheduleNow,
   useUpdateEmailScanSchedule,
 } from "@itinly/api-client";
 import type {
@@ -26,6 +27,7 @@ import {
   Plus,
   Trash2,
   XCircle,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -248,6 +250,7 @@ function ScheduleRow({
   const [historyOpen, setHistoryOpen] = useState(false);
   const update = useUpdateEmailScanSchedule();
   const remove = useDeleteEmailScanSchedule();
+  const runNow = useRunEmailScanScheduleNow();
   const confirm = useConfirm();
 
   const togglePause = () => {
@@ -255,6 +258,30 @@ function ScheduleRow({
       { id: schedule.id, input: { enabled: !schedule.enabled } },
       { onError: toastMutationError("update schedule") },
     );
+  };
+
+  const onRunNow = () => {
+    runNow.mutate(schedule.id, {
+      onSuccess: (run) => {
+        if (run.status === "failed") {
+          toast.error("Scan failed", {
+            description: run.errorMessage ?? "Something went wrong.",
+          });
+        } else if (run.newCount > 0) {
+          toast.success(
+            `Found ${run.newCount} new segment${run.newCount === 1 ? "" : "s"}`,
+            {
+              description: `Scanned ${run.scannedCount} email${run.scannedCount === 1 ? "" : "s"}.`,
+            },
+          );
+        } else {
+          toast.success("Scan complete", {
+            description: `Scanned ${run.scannedCount} email${run.scannedCount === 1 ? "" : "s"} — nothing new.`,
+          });
+        }
+      },
+      onError: toastMutationError("run scan"),
+    });
   };
 
   const onDelete = async () => {
@@ -313,6 +340,21 @@ function ScheduleRow({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onRunNow}
+            disabled={runNow.isPending}
+            title="Run this scan now"
+            aria-label="Run this scan now"
+          >
+            {runNow.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Zap className="h-3.5 w-3.5" />
+            )}
+            Run now
+          </Button>
           <Button
             variant="ghost"
             size="sm"

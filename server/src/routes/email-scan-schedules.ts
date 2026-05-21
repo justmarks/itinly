@@ -36,6 +36,8 @@ import type { NotificationSender } from "../services/notification-sender";
 import type { DueEmailScanScheduleStore } from "../services/email-scan-due";
 import { executeSchedule } from "../services/email-scan-executor";
 import { computeNextRunAt } from "../services/email-scan-schedule-cadence";
+import { reportError } from "../services/monitoring";
+import { debugEmailSchedule } from "../utils/debug-log";
 import { config } from "../config/env";
 
 export interface EmailScanScheduleRoutesOptions {
@@ -51,6 +53,12 @@ export interface EmailScanScheduleRoutesOptions {
   dueScheduleStore: DueEmailScanScheduleStore;
   connectionsStore?: ConnectionsStore;
   notificationSender?: NotificationSender;
+  /**
+   * Anthropic API key used by the executor when a user triggers
+   * `POST /:id/run`. Defaults to `config.anthropic.apiKey`; tests
+   * inject `undefined` so the "AI not configured" branch is reachable.
+   */
+  anthropicApiKey?: string;
 }
 
 export function createEmailScanScheduleRoutes(
@@ -62,6 +70,7 @@ export function createEmailScanScheduleRoutes(
     dueScheduleStore,
     connectionsStore,
     notificationSender,
+    anthropicApiKey = config.anthropic.apiKey,
   } = options;
 
   const getStorage: StorageResolver =
@@ -96,6 +105,9 @@ export function createEmailScanScheduleRoutes(
 
     try {
       const due = await dueScheduleStore.listDue();
+      debugEmailSchedule(
+        `[cron-tick] fan-out: ${due.length} due schedule(s)`,
+      );
       let successCount = 0;
       let failureCount = 0;
       let totalNewSegments = 0;
@@ -119,15 +131,27 @@ export function createEmailScanScheduleRoutes(
         } catch (err) {
           // executeSchedule already persists a failed run row on
           // exception, but defensive: if the call itself throws (e.g.
-          // storage is offline) we still want to keep ticking through
-          // the rest.
+          // storage is offline before the initial `running` insert) we
+          // still want to keep ticking through the rest, and we need
+          // to alert Sentry directly because no `finishWith("failed")`
+          // ran to do it for us.
           console.error(
             `[cron-tick] schedule ${schedule.id} threw outside executor:`,
             err,
           );
+          reportError(err, {
+            source: "auto_scan",
+            phase: "cron-tick",
+            scheduleId: schedule.id,
+            userId: schedule.userId,
+            provider: schedule.provider,
+          });
           failureCount += 1;
         }
       }
+      debugEmailSchedule(
+        `[cron-tick] complete: due=${due.length} ok=${successCount} failed=${failureCount} newSegments=${totalNewSegments}`,
+      );
       res.json({
         dueCount: due.length,
         successCount,
@@ -288,6 +312,39 @@ export function createEmailScanScheduleRoutes(
     } catch (err) {
       console.error("[email-scan-schedules] delete error:", err);
       const msg = err instanceof Error ? err.message : "Delete failed";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // Manual "Run now" — bypasses the cron tick and executes a schedule
+  // immediately on user demand. Same executor + same failure
+  // semantics (run record persisted, Sentry alert on failure), so the
+  // history dialog and ops alerting both behave identically to the
+  // automated path.
+  router.post("/:id/run", async (req: Request, res: Response) => {
+    if (!req.userId) {
+      res.status(401).json({ error: "Not authenticated" });
+      return;
+    }
+    try {
+      const storage = getStorage(req);
+      const schedule = await storage.getEmailScanSchedule(
+        req.params.id as string,
+      );
+      if (!schedule) {
+        res.status(404).json({ error: "Schedule not found" });
+        return;
+      }
+      const result = await executeSchedule(schedule, {
+        storage,
+        connectionsStore,
+        anthropicApiKey,
+        notificationSender,
+      });
+      res.json(result.run);
+    } catch (err) {
+      console.error("[email-scan-schedules] run-now error:", err);
+      const msg = err instanceof Error ? err.message : "Run failed";
       res.status(500).json({ error: msg });
     }
   });
