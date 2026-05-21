@@ -180,7 +180,7 @@ describe("/api/v1/connections", () => {
         })
         .expect(201);
       await request(app)
-        .delete(`/api/v1/connections/${revokedRes.body.id}`)
+        .delete(`/api/v1/connections/${revokedRes.body.connection.id}`)
         .set("x-test-user-id", USER_ID)
         .expect(204);
 
