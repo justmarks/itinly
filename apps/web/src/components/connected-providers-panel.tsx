@@ -35,6 +35,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { UserIdentity } from "@supabase/supabase-js";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -43,6 +44,10 @@ import { Button } from "@/components/ui/button";
 import { getSupabaseClient } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useConfirm } from "@/lib/confirm-dialog";
+import {
+  isBrokenSupabaseSessionError,
+  recoverFromBrokenSupabaseSession,
+} from "@/lib/supabase-recovery";
 import { sortByPrimaryEmail } from "@itinly/shared";
 import { Loader2 } from "lucide-react";
 
@@ -113,6 +118,7 @@ export function ConnectedProvidersPanel(): React.JSX.Element {
   const { accessToken, user } = useAuth();
   const confirm = useConfirm();
   const queryClient = useQueryClient();
+  const router = useRouter();
   // Share connections state with `ConnectedServicesPanel` via the
   // same React Query cache key. When this panel cascade-unlinks a
   // provider it invalidates the query so the services panel re-renders
@@ -134,6 +140,16 @@ export function ConnectedProvidersPanel(): React.JSX.Element {
     void supabase.auth.getUserIdentities().then(({ data, error }) => {
       if (cancelled) return;
       if (error || !data) {
+        // The user-reported May-2026 stuck state: a malformed JWT
+        // sat in localStorage and `getUserIdentities` returned
+        // "Auth session missing!" / "Invalid claim: missing sub
+        // claim". Wipe the bad state and bounce the user to login
+        // instead of leaving them staring at a banner with no
+        // recovery path.
+        if (error && isBrokenSupabaseSessionError(error)) {
+          void recoverFromBrokenSupabaseSession({ router });
+          return;
+        }
         setLoadError(error?.message ?? "Couldn't load sign-in methods.");
         return;
       }
@@ -142,7 +158,7 @@ export function ConnectedProvidersPanel(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [router]);
 
   if (loadError) {
     return (
