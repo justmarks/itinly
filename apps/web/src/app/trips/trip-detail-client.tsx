@@ -423,11 +423,7 @@ function TripActionsMenu({
 }: {
   tripId: string;
   tripTitle: string;
-  trip: {
-    id: string;
-    calendarId?: string;
-    days: Array<{ segments: Array<{ calendarEventId?: string }> }>;
-  };
+  trip: { id: string };
   onImportEmail: () => void;
   /** Whether to surface the destructive "Delete trip" entry. Owner-only. */
   canDelete: boolean;
@@ -507,6 +503,7 @@ function TripActionsMenu({
     calendarGranted,
     isSynced,
     syncedCount,
+    syncedCalendarId,
     syncedCalendarName,
     syncing,
     calendars,
@@ -528,7 +525,7 @@ function TripActionsMenu({
   const refreshCalendarList = async (providerOverride?: CalendarProvider) => {
     const cals = await loadCalendars(providerOverride);
     const primary = cals.find((c) => c.primary);
-    setSelectedCalendarId(trip.calendarId ?? primary?.id ?? "primary");
+    setSelectedCalendarId(syncedCalendarId ?? primary?.id ?? "primary");
   };
 
   const handleProviderChange = (next: CalendarProvider) => {
@@ -650,6 +647,7 @@ function TripActionsMenu({
         calendars={calendars}
         loadingCalendars={loadingCalendars}
         syncedCount={syncedCount}
+        syncedCalendarId={syncedCalendarId}
         syncedCalendarName={syncedCalendarName}
         providerLabel={providerLabel}
         connectedProviders={connectedProviders}
@@ -811,6 +809,7 @@ function CalendarSyncDialogs({
   calendars,
   loadingCalendars,
   syncedCount,
+  syncedCalendarId,
   syncedCalendarName,
   providerLabel,
   connectedProviders,
@@ -831,6 +830,10 @@ function CalendarSyncDialogs({
   calendars: Array<{ id: string; summary: string; primary: boolean }> | null;
   loadingCalendars: boolean;
   syncedCount: number;
+  /** The currently-synced calendar id. Needed to gate the
+   *  "Loading sync details…" loader: only show it when we know
+   *  there's a name we'd want to resolve. */
+  syncedCalendarId: string | undefined;
   syncedCalendarName: string | undefined;
   providerLabel: string;
   connectedProviders: CalendarProvider[];
@@ -958,9 +961,25 @@ function CalendarSyncDialogs({
               <DialogHeader>
                 <DialogTitle>{providerLabel} sync</DialogTitle>
                 <DialogDescription>
-                  {syncedCount} event{syncedCount !== 1 ? "s" : ""} synced
-                  {syncedCalendarName ? ` to ${syncedCalendarName}` : ""}.
-                  New and edited events are pushed automatically.
+                  {/* Hold the full description until `calendars` resolves so
+                      the user doesn't see "N events synced. New and edited…"
+                      flash and ~2 s later get rewritten with "to <Calendar>"
+                      appended once the provider's calendar list comes back.
+                      `calendars` starts null on every dialog open (see
+                      `loadCalendars`); we only need the loader when there's a
+                      stored `syncedCalendarId` we'd want to name. */}
+                  {calendars === null && syncedCalendarId ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading sync details…
+                    </span>
+                  ) : (
+                    <>
+                      {syncedCount} event{syncedCount !== 1 ? "s" : ""} synced
+                      {syncedCalendarName ? ` to ${syncedCalendarName}` : ""}.
+                      New and edited events are pushed automatically.
+                    </>
+                  )}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter className="flex-col gap-2 sm:flex-row">
@@ -1224,13 +1243,6 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
                   <Share2 className="h-3.5 w-3.5" />
                   Share
                 </Button>
-                <TripActionsMenu
-                  tripId={trip.id}
-                  tripTitle={trip.title}
-                  trip={trip}
-                  onImportEmail={() => setHtmlImportOpen(true)}
-                  canDelete={permission.isOwner}
-                />
                 <HtmlImportDialog
                   tripId={trip.id}
                   hideTrigger
@@ -1243,6 +1255,20 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
                   onOpenChange={setShareOpen}
                 />
               </>
+            )}
+            {/* Trip actions menu — Calendar sync now visible to ANY
+                edit user (recipients push to their OWN calendar via
+                the per-user `trip_user_calendar_syncs` row). Delete
+                + other owner-only items inside the menu still gate
+                on `canDelete`. */}
+            {!permission.isLoading && permission.canEdit && (
+              <TripActionsMenu
+                tripId={trip.id}
+                tripTitle={trip.title}
+                trip={trip}
+                onImportEmail={() => setHtmlImportOpen(true)}
+                canDelete={permission.isOwner}
+              />
             )}
             {!permission.isLoading && !isOwner && ownShareId && (
               <LeaveTripMenu
