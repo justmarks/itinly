@@ -67,15 +67,22 @@ export function MobilePlacesSheet({
         setEditingId(null);
         onClose();
       }}
-      title="Places to go"
       ariaLabel="Places to go"
     >
-      <div className="space-y-3 pb-2">
-        <p className="text-xs text-muted-foreground">
-          Shops, museums, viewpoints — anything to remember.{" "}
-          <span style={{ color: "var(--brand)" }}>Orange pins</span> on the
-          map.
-        </p>
+      <div className="flex shrink-0 items-start justify-between gap-3 px-5 pb-2 pt-1">
+        <div className="min-w-0 flex-1">
+          <p className="text-kicker font-semibold text-muted-foreground">
+            Places to go
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Shops, museums, viewpoints — anything to remember.{" "}
+            <span style={{ color: "var(--brand)" }}>Orange pins</span> on the
+            map.
+          </p>
+        </div>
+      </div>
+      <div className="space-y-3 px-5 pb-4">
+        {/* List + form */}
 
         {canEdit && !showAdd && editingId === null && (
           <button
