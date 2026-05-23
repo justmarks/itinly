@@ -61,6 +61,22 @@ function AccountSettingsBody(): React.JSX.Element | null {
       <div className="mt-10 border-t border-border pt-6">
         <DeleteAccountSection />
       </div>
+
+      <footer className="mt-10 flex items-center justify-center gap-4 border-t border-border pt-6 text-sm text-muted-foreground">
+        <Link
+          href="/privacy"
+          className="underline-offset-4 hover:text-foreground hover:underline"
+        >
+          Privacy Policy
+        </Link>
+        <span aria-hidden>·</span>
+        <Link
+          href="/terms"
+          className="underline-offset-4 hover:text-foreground hover:underline"
+        >
+          Terms of Service
+        </Link>
+      </footer>
     </main>
   );
 }

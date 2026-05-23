@@ -23,7 +23,7 @@ export default function PrivacyPage(): React.JSX.Element {
           <header className="space-y-2">
             <h1 className="text-3xl font-bold tracking-tight">Privacy Policy</h1>
             <p className="text-sm text-muted-foreground">
-              Effective Date: May 13, 2026
+              Effective Date: May 23, 2026
             </p>
           </header>
 
@@ -204,7 +204,47 @@ export default function PrivacyPage(): React.JSX.Element {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-xl font-semibold">6. Cookies and Tracking</h2>
+            <h2 className="text-xl font-semibold">
+              6. Google API Services User Data Policy
+            </h2>
+            <p>
+              itinly&apos;s use and transfer to any other app of information
+              received from Google APIs will adhere to the{" "}
+              <a
+                href="https://developers.google.com/terms/api-services-user-data-policy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                Google API Services User Data Policy
+              </a>
+              , including the{" "}
+              <a
+                href="https://developers.google.com/terms/api-services-user-data-policy#limited-use"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                Limited Use
+              </a>{" "}
+              requirements. In particular: we only access Gmail and Google
+              Calendar data to provide user-facing features you have
+              explicitly invoked; we do not transfer Google user data to
+              third parties except as necessary to provide or improve those
+              features (Anthropic for parsing the contents of messages you
+              ask us to scan, and Supabase as the managed database where
+              the resulting structured itinerary is stored); we do not use
+              Google user data to serve advertising; and we do not allow
+              humans to read Google user data unless we have your explicit
+              consent for specific messages, it is necessary for security
+              purposes (such as investigating abuse), to comply with
+              applicable law, or the data has been aggregated and
+              anonymized.
+            </p>
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="text-xl font-semibold">7. Cookies and Tracking</h2>
             <p>
               The Service uses only the cookies and local-storage entries
               necessary to keep you signed in (for example, OAuth state and
@@ -215,7 +255,7 @@ export default function PrivacyPage(): React.JSX.Element {
 
           <section className="space-y-3">
             <h2 className="text-xl font-semibold">
-              7. Your Rights and Choices
+              8. Your Rights and Choices
             </h2>
             <ul className="list-disc space-y-2 pl-6">
               <li>
@@ -249,7 +289,7 @@ export default function PrivacyPage(): React.JSX.Element {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-xl font-semibold">8. Children</h2>
+            <h2 className="text-xl font-semibold">9. Children</h2>
             <p>
               The Service is not directed to children under 13, and we do not
               knowingly collect personal information from them.
@@ -257,7 +297,7 @@ export default function PrivacyPage(): React.JSX.Element {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-xl font-semibold">9. Changes to This Policy</h2>
+            <h2 className="text-xl font-semibold">10. Changes to This Policy</h2>
             <p>
               We may update this policy from time to time. The &quot;Effective
               Date&quot; at the top of this page reflects the most recent
@@ -267,7 +307,7 @@ export default function PrivacyPage(): React.JSX.Element {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-xl font-semibold">10. Contact</h2>
+            <h2 className="text-xl font-semibold">11. Contact</h2>
             <p>
               Questions, deletion requests, or concerns about this policy can
               be sent to{" "}

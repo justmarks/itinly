@@ -18,7 +18,7 @@ import { ThemeToggleMenu } from "@/components/theme-toggle";
 import { NotificationToggleMenu } from "@/components/notification-toggle";
 import { AutoShareRulesDialog } from "@/components/auto-share-rules-panel";
 import { UserAvatar } from "@/components/user-avatar";
-import { LogIn, LogOut, Repeat, Smartphone, UserCog } from "lucide-react";
+import { LogIn, LogOut, Repeat, ShieldCheck, Smartphone, UserCog } from "lucide-react";
 
 export function UserMenu(): React.JSX.Element | null {
   const { user, isAuthenticated, logout } = useAuth();
@@ -80,6 +80,12 @@ export function UserMenu(): React.JSX.Element | null {
           <Link href="/settings/account">
             <UserCog className="mr-2 h-4 w-4" />
             Account
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/privacy">
+            <ShieldCheck className="mr-2 h-4 w-4" />
+            Privacy & Terms
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={logout}>
