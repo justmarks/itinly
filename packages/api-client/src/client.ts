@@ -3,6 +3,7 @@ import type {
   TripDay,
   Segment,
   Todo,
+  Place,
   TripShare,
   TripShareRule,
   CostSummaryItem,
@@ -11,6 +12,8 @@ import type {
   CreateSegmentInput,
   CreateTodoInput,
   UpdateTodoInput,
+  CreatePlaceInput,
+  UpdatePlaceInput,
   CreateShareInput,
   CreateShareRuleInput,
   UpdateShareRuleInput,
@@ -120,6 +123,9 @@ export interface SharedTripResponse {
   status: string;
   days: TripDay[];
   todos: Todo[];
+  /** Per-trip "Places to go" list. Always returned — places aren't gated
+   *  by the share's `showTodos` / `showCosts` toggles. */
+  places: Place[];
   permission: string;
 }
 
@@ -319,6 +325,36 @@ export class ApiClient {
 
   deleteTodo(tripId: string, todoId: string): Promise<void> {
     return this.request(`/trips/${tripId}/todos/${todoId}`, {
+      method: "DELETE",
+    });
+  }
+
+  // ─── Places ─────────────────────────────────────────────
+
+  listPlaces(tripId: string): Promise<Place[]> {
+    return this.request(`/trips/${tripId}/places`);
+  }
+
+  createPlace(tripId: string, input: CreatePlaceInput): Promise<Place> {
+    return this.request(`/trips/${tripId}/places`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  updatePlace(
+    tripId: string,
+    placeId: string,
+    input: UpdatePlaceInput,
+  ): Promise<Place> {
+    return this.request(`/trips/${tripId}/places/${placeId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  }
+
+  deletePlace(tripId: string, placeId: string): Promise<void> {
+    return this.request(`/trips/${tripId}/places/${placeId}`, {
       method: "DELETE",
     });
   }

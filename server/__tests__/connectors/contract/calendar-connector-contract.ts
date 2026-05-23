@@ -45,6 +45,7 @@ export function emptyTrip(overrides: Partial<Trip> = {}): Trip {
     status: "planning",
     days: [],
     todos: [],
+    places: [],
     shares: [],
     history: [],
     createdAt: now,

@@ -77,6 +77,7 @@ function makeTrip(segment: Segment, day: TripDay): Trip {
     status: "planning",
     days: [{ ...day, segments: [segment] }],
     todos: [],
+    places: [],
     shares: [],
     history: [],
     createdAt: "2026-06-01T00:00:00.000Z",

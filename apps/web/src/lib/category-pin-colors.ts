@@ -4,12 +4,20 @@ import { useMemo } from "react";
 import { useTheme } from "next-themes";
 
 /**
- * Map-pin category — the four-bucket collapse used by both the desktop
+ * Map-pin category — the five-bucket collapse used by both the desktop
  * Map view and the mobile per-day mini-map. Mirrors the `Category`
  * union in those components but lives here so the pin-color hook is
  * the single source of truth.
+ *
+ * `place` is the only category that ISN'T tied to an itinerary segment —
+ * it covers the standalone "places to go" list a user keeps per trip.
  */
-export type PinCategory = "hotel" | "dining" | "activity" | "transport";
+export type PinCategory =
+  | "hotel"
+  | "dining"
+  | "activity"
+  | "transport"
+  | "place";
 
 /**
  * Light-mode hex fallback per category. The fallback only fires on
@@ -17,17 +25,20 @@ export type PinCategory = "hotel" | "dining" | "activity" | "transport";
  * runs; it MUST track the corresponding `--pin-*` token so first-paint
  * pins don't flash a stale hue.
  *
- * Each `--pin-{name}` aliases to the matching `--cat-*-fg`:
+ * Each `--pin-{name}` aliases to the matching `--cat-*-fg` (except
+ * `place`, which aliases to `--brand`):
  *   transport → --cat-transport-fg = --seg-flight-fg   = #0284C7 (sky)
  *   hotel     → --cat-lodging-fg   = --seg-hotel-fg    = #6D28D9 (violet)
  *   activity  → --cat-activity-fg  = --seg-activity-fg = #15803D (green)
  *   dining    → --cat-dining-fg    = --seg-dinner-fg   = #B91C1C (red)
+ *   place     → --brand                                = #D9501C (vermilion)
  */
 const PIN_FALLBACK: Record<PinCategory, string> = {
   hotel:     "#6D28D9",
   dining:    "#B91C1C",
   activity:  "#15803D",
   transport: "#0284C7",
+  place:     "#D9501C",
 };
 
 /**
@@ -54,6 +65,7 @@ export function useCategoryPinColors(): Record<PinCategory, string> {
       dining:    read("dining"),
       activity:  read("activity"),
       transport: read("transport"),
+      place:     read("place"),
     };
     // resolvedTheme is the trigger; we read the live computed style on
     // every theme flip so dark-mode lifts apply.

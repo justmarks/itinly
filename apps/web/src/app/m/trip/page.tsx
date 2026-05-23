@@ -29,6 +29,7 @@ import {
   LogOut,
   Mail,
   Loader2,
+  MapPin,
   MoreVertical,
   Pencil,
   Share2,
@@ -45,6 +46,7 @@ import { MobileFrame, MobileHeader } from "@/components/mobile/mobile-shell";
 import { MobileCarouselView } from "@/components/mobile/mobile-carousel-view";
 import { MobileCostsSheet } from "@/components/mobile/mobile-costs-sheet";
 import { MobileTodosSheet } from "@/components/mobile/mobile-todos-sheet";
+import { MobilePlacesSheet } from "@/components/mobile/mobile-places-sheet";
 import { MobileShareSheet } from "@/components/mobile/mobile-share-sheet";
 import { MobileHistorySheet } from "@/components/mobile/mobile-history-sheet";
 import { MobileEditTripSheet } from "@/components/mobile/mobile-edit-trip-sheet";
@@ -76,6 +78,7 @@ function MobileTripOverflowMenu({
   tripId,
   tripTitle,
   onOpenCosts,
+  onOpenPlaces,
   onOpenHistory,
   onOpenEdit,
   onOpenCalendarSync,
@@ -93,6 +96,7 @@ function MobileTripOverflowMenu({
   tripId: string;
   tripTitle: string;
   onOpenCosts: () => void;
+  onOpenPlaces: () => void;
   onOpenHistory: () => void;
   onOpenEdit: () => void;
   onOpenCalendarSync: () => void;
@@ -193,6 +197,10 @@ function MobileTripOverflowMenu({
             Costs
           </DropdownMenuItem>
         )}
+        <DropdownMenuItem onClick={onOpenPlaces}>
+          <MapPin className="mr-2 h-4 w-4" style={{ color: "var(--brand)" }} />
+          Places to go
+        </DropdownMenuItem>
         {showCalendarSync && (
           <DropdownMenuItem onClick={onOpenCalendarSync}>
             {calendarSynced ? (
@@ -283,6 +291,7 @@ function HeaderActions({
   pendingCount,
   onOpenCosts,
   onOpenTodos,
+  onOpenPlaces,
   onOpenShare,
   onOpenHistory,
   onOpenEdit,
@@ -312,6 +321,7 @@ function HeaderActions({
   pendingCount: number;
   onOpenCosts: () => void;
   onOpenTodos: () => void;
+  onOpenPlaces: () => void;
   onOpenShare: () => void;
   onOpenHistory: () => void;
   onOpenEdit: () => void;
@@ -418,6 +428,7 @@ function HeaderActions({
         tripId={tripId}
         tripTitle={tripTitle}
         onOpenCosts={onOpenCosts}
+        onOpenPlaces={onOpenPlaces}
         onOpenHistory={onOpenHistory}
         onOpenEdit={onOpenEdit}
         onOpenCalendarSync={onOpenCalendarSync}
@@ -470,6 +481,7 @@ function MobileTripInner({
   const homeHref = useDemoHref("/m");
   const [costsOpen, setCostsOpen] = useState(false);
   const [todosOpen, setTodosOpen] = useState(false);
+  const [placesOpen, setPlacesOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -575,6 +587,7 @@ function MobileTripInner({
         onSwitchView={onSwitchView}
         costsOpen={costsOpen}
         todosOpen={todosOpen}
+        placesOpen={placesOpen}
         shareOpen={shareOpen}
         historyOpen={historyOpen}
         editOpen={editOpen}
@@ -584,6 +597,8 @@ function MobileTripInner({
         onCloseCosts={() => setCostsOpen(false)}
         onOpenTodos={() => setTodosOpen(true)}
         onCloseTodos={() => setTodosOpen(false)}
+        onOpenPlaces={() => setPlacesOpen(true)}
+        onClosePlaces={() => setPlacesOpen(false)}
         onOpenShare={() => setShareOpen(true)}
         onCloseShare={() => setShareOpen(false)}
         onOpenHistory={() => setHistoryOpen(true)}
@@ -609,6 +624,7 @@ function TripFrame({
   onSwitchView,
   costsOpen,
   todosOpen,
+  placesOpen,
   shareOpen,
   historyOpen,
   editOpen,
@@ -619,6 +635,8 @@ function TripFrame({
   onCloseCosts,
   onOpenTodos,
   onCloseTodos,
+  onOpenPlaces,
+  onClosePlaces,
   onOpenShare,
   onCloseShare,
   onOpenHistory,
@@ -638,6 +656,7 @@ function TripFrame({
   onSwitchView: () => void;
   costsOpen: boolean;
   todosOpen: boolean;
+  placesOpen: boolean;
   shareOpen: boolean;
   historyOpen: boolean;
   editOpen: boolean;
@@ -648,6 +667,8 @@ function TripFrame({
   onCloseCosts: () => void;
   onOpenTodos: () => void;
   onCloseTodos: () => void;
+  onOpenPlaces: () => void;
+  onClosePlaces: () => void;
   onOpenShare: () => void;
   onCloseShare: () => void;
   onOpenHistory: () => void;
@@ -709,6 +730,7 @@ function TripFrame({
               pendingCount={pendingCount}
               onOpenCosts={onOpenCosts}
               onOpenTodos={onOpenTodos}
+              onOpenPlaces={onOpenPlaces}
               onOpenShare={onOpenShare}
               onOpenHistory={onOpenHistory}
               onOpenEdit={onOpenEdit}
@@ -778,6 +800,13 @@ function TripFrame({
           onClose={onCloseTodos}
         />
       )}
+      <MobilePlacesSheet
+        tripId={trip.id}
+        places={trip.places ?? []}
+        canEdit={permission.canEdit}
+        open={placesOpen}
+        onClose={onClosePlaces}
+      />
       <MobileHistorySheet
         entries={trip.history}
         open={historyOpen}

@@ -8,6 +8,7 @@ import type {
   Trip,
   Segment,
   Todo,
+  Place,
   TripShare,
   TripShareRule,
   CreateTripInput,
@@ -15,6 +16,8 @@ import type {
   CreateSegmentInput,
   CreateTodoInput,
   UpdateTodoInput,
+  CreatePlaceInput,
+  UpdatePlaceInput,
   CreateShareInput,
   CreateShareRuleInput,
   UpdateShareRuleInput,
@@ -48,6 +51,7 @@ export const queryKeys = {
   segments: (tripId: string) => ["trips", tripId, "segments"] as const,
   costs: (tripId: string) => ["trips", tripId, "costs"] as const,
   todos: (tripId: string) => ["trips", tripId, "todos"] as const,
+  places: (tripId: string) => ["trips", tripId, "places"] as const,
   shares: (tripId: string) => ["trips", tripId, "shares"] as const,
   shareRules: ["share-rules"] as const,
   shared: (token: string) => ["shared", token] as const,
@@ -620,6 +624,178 @@ export function useDeleteTodo(tripId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.todos(tripId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.trip(tripId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.trips });
+    },
+  });
+}
+
+// ─── Place Queries & Mutations ────────────────────────────
+
+export function usePlaces(tripId: string) {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: queryKeys.places(tripId),
+    queryFn: () => client.listPlaces(tripId),
+  });
+}
+
+export function useCreatePlace(tripId: string) {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreatePlaceInput) =>
+      client.createPlace(tripId, input),
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.places(tripId) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.trip(tripId) });
+      const prevPlaces = queryClient.getQueryData<Place[]>(
+        queryKeys.places(tripId),
+      );
+      const prevTrip = queryClient.getQueryData<Trip>(queryKeys.trip(tripId));
+      const baseLength =
+        prevPlaces?.length ?? prevTrip?.places.length ?? 0;
+      const optimistic: Place = {
+        id: `temp_${generateId()}`,
+        sortOrder: baseLength,
+        createdAt: new Date().toISOString(),
+        ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+        ...(input.address?.trim() ? { address: input.address.trim() } : {}),
+        ...(input.url?.trim() ? { url: input.url.trim() } : {}),
+        ...(input.city?.trim() ? { city: input.city.trim() } : {}),
+        ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
+      };
+      if (prevPlaces) {
+        queryClient.setQueryData<Place[]>(queryKeys.places(tripId), [
+          ...prevPlaces,
+          optimistic,
+        ]);
+      }
+      if (prevTrip) {
+        queryClient.setQueryData<Trip>(queryKeys.trip(tripId), {
+          ...prevTrip,
+          places: [...(prevTrip.places ?? []), optimistic],
+        });
+      }
+      return { prevPlaces, prevTrip };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.prevPlaces) {
+        queryClient.setQueryData(queryKeys.places(tripId), ctx.prevPlaces);
+      }
+      if (ctx?.prevTrip) {
+        queryClient.setQueryData(queryKeys.trip(tripId), ctx.prevTrip);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.places(tripId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.trip(tripId) });
+    },
+  });
+}
+
+export function useUpdatePlace(tripId: string) {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { placeId: string } & UpdatePlaceInput) => {
+      const { placeId, ...data } = input;
+      return client.updatePlace(tripId, placeId, data);
+    },
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.places(tripId) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.trip(tripId) });
+      const prevPlaces = queryClient.getQueryData<Place[]>(
+        queryKeys.places(tripId),
+      );
+      const prevTrip = queryClient.getQueryData<Trip>(queryKeys.trip(tripId));
+      const { placeId, ...patch } = input;
+      // Convert null/empty-string to undefined so the cached row stays
+      // free of literal nulls — mirrors the server's clear semantics.
+      const apply = (p: Place): Place => {
+        const next: Place = { ...p };
+        const setOrClear = (
+          key: "name" | "address" | "url" | "city" | "notes",
+          value: string | null | undefined,
+        ) => {
+          if (value === undefined) return;
+          if (value === null || value === "") delete next[key];
+          else next[key] = value.trim();
+        };
+        setOrClear("name", patch.name);
+        setOrClear("address", patch.address);
+        setOrClear("url", patch.url);
+        setOrClear("city", patch.city);
+        setOrClear("notes", patch.notes);
+        if (patch.sortOrder !== undefined) next.sortOrder = patch.sortOrder;
+        return next;
+      };
+      if (prevPlaces) {
+        queryClient.setQueryData<Place[]>(
+          queryKeys.places(tripId),
+          prevPlaces.map((p) => (p.id === placeId ? apply(p) : p)),
+        );
+      }
+      if (prevTrip) {
+        queryClient.setQueryData<Trip>(queryKeys.trip(tripId), {
+          ...prevTrip,
+          places: (prevTrip.places ?? []).map((p) =>
+            p.id === placeId ? apply(p) : p,
+          ),
+        });
+      }
+      return { prevPlaces, prevTrip };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.prevPlaces) {
+        queryClient.setQueryData(queryKeys.places(tripId), ctx.prevPlaces);
+      }
+      if (ctx?.prevTrip) {
+        queryClient.setQueryData(queryKeys.trip(tripId), ctx.prevTrip);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.places(tripId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.trip(tripId) });
+    },
+  });
+}
+
+export function useDeletePlace(tripId: string) {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (placeId: string) => client.deletePlace(tripId, placeId),
+    onMutate: async (placeId) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.places(tripId) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.trip(tripId) });
+      const prevPlaces = queryClient.getQueryData<Place[]>(
+        queryKeys.places(tripId),
+      );
+      const prevTrip = queryClient.getQueryData<Trip>(queryKeys.trip(tripId));
+      if (prevPlaces) {
+        queryClient.setQueryData<Place[]>(
+          queryKeys.places(tripId),
+          prevPlaces.filter((p) => p.id !== placeId),
+        );
+      }
+      if (prevTrip) {
+        queryClient.setQueryData<Trip>(queryKeys.trip(tripId), {
+          ...prevTrip,
+          places: (prevTrip.places ?? []).filter((p) => p.id !== placeId),
+        });
+      }
+      return { prevPlaces, prevTrip };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.prevPlaces) {
+        queryClient.setQueryData(queryKeys.places(tripId), ctx.prevPlaces);
+      }
+      if (ctx?.prevTrip) {
+        queryClient.setQueryData(queryKeys.trip(tripId), ctx.prevTrip);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.places(tripId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.trip(tripId) });
     },
   });
 }

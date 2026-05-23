@@ -33,6 +33,7 @@ const makeTrip = (overrides: Partial<Trip> = {}): Trip => ({
   status: "planning",
   days: [],
   todos: [],
+  places: [],
   shares: [],
   history: [],
   createdAt: "2026-05-09T10:00:00.000Z",
