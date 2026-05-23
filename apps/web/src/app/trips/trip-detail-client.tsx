@@ -646,6 +646,7 @@ function TripActionsMenu({
         calendars={calendars}
         loadingCalendars={loadingCalendars}
         syncedCount={syncedCount}
+        syncedCalendarId={syncedCalendarId}
         syncedCalendarName={syncedCalendarName}
         providerLabel={providerLabel}
         connectedProviders={connectedProviders}
@@ -807,6 +808,7 @@ function CalendarSyncDialogs({
   calendars,
   loadingCalendars,
   syncedCount,
+  syncedCalendarId,
   syncedCalendarName,
   providerLabel,
   connectedProviders,
@@ -827,6 +829,10 @@ function CalendarSyncDialogs({
   calendars: Array<{ id: string; summary: string; primary: boolean }> | null;
   loadingCalendars: boolean;
   syncedCount: number;
+  /** The currently-synced calendar id. Needed to gate the
+   *  "Loading sync details…" loader: only show it when we know
+   *  there's a name we'd want to resolve. */
+  syncedCalendarId: string | undefined;
   syncedCalendarName: string | undefined;
   providerLabel: string;
   connectedProviders: CalendarProvider[];
@@ -954,9 +960,25 @@ function CalendarSyncDialogs({
               <DialogHeader>
                 <DialogTitle>{providerLabel} sync</DialogTitle>
                 <DialogDescription>
-                  {syncedCount} event{syncedCount !== 1 ? "s" : ""} synced
-                  {syncedCalendarName ? ` to ${syncedCalendarName}` : ""}.
-                  New and edited events are pushed automatically.
+                  {/* Hold the full description until `calendars` resolves so
+                      the user doesn't see "N events synced. New and edited…"
+                      flash and ~2 s later get rewritten with "to <Calendar>"
+                      appended once the provider's calendar list comes back.
+                      `calendars` starts null on every dialog open (see
+                      `loadCalendars`); we only need the loader when there's a
+                      stored `syncedCalendarId` we'd want to name. */}
+                  {calendars === null && syncedCalendarId ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading sync details…
+                    </span>
+                  ) : (
+                    <>
+                      {syncedCount} event{syncedCount !== 1 ? "s" : ""} synced
+                      {syncedCalendarName ? ` to ${syncedCalendarName}` : ""}.
+                      New and edited events are pushed automatically.
+                    </>
+                  )}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter className="flex-col gap-2 sm:flex-row">
