@@ -26,15 +26,20 @@
  */
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys, useConnections } from "@itinly/api-client";
 import { Button } from "@/components/ui/button";
-import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { markPendingConnection } from "@/app/auth/callback/page";
 import { startGmailLink, isGmailLinkConfigured } from "@/lib/oauth";
 import { describeError } from "@/lib/api-error";
+import {
+  isBrokenSupabaseSessionError,
+  recoverFromBrokenSupabaseSession,
+} from "@/lib/supabase-recovery";
 import { sortByPrimaryEmail } from "@itinly/shared";
 import { Loader2 } from "lucide-react";
 
@@ -81,6 +86,7 @@ async function deleteConnection(
 export function ConnectedServicesPanel(): React.JSX.Element {
   const { accessToken, user } = useAuth();
   const queryClient = useQueryClient();
+  const router = useRouter();
   // TanStack Query owns the connections fetch so that the
   // `ConnectedProvidersPanel` cascade-unlink can invalidate this
   // query and we re-render in step instead of waiting for a manual
@@ -128,7 +134,21 @@ export function ConnectedServicesPanel(): React.JSX.Element {
       // Either path lands at /auth/callback which reads the pending-
       // connection flag and writes the capability row.
       const supabaseClient = supabase;
-      const { data: userData } = await supabaseClient.auth.getUser();
+      const { data: userData, error: getUserError } =
+        await supabaseClient.auth.getUser();
+      if (getUserError) {
+        // Same broken-JWT path the providers panel handles at mount:
+        // when localStorage holds a token GoTrue rejects ("missing
+        // sub claim", "Auth session missing", …), every Connect
+        // button silently fails. Recover by wiping the bad state and
+        // bouncing the user to login — they re-sign-in and try
+        // Connect again from a clean slate.
+        if (isBrokenSupabaseSessionError(getUserError)) {
+          await recoverFromBrokenSupabaseSession({ router });
+          return;
+        }
+        throw getUserError;
+      }
       const linkedProviders = new Set(
         (userData.user?.identities ?? []).map((i) => i.provider),
       );
@@ -243,6 +263,15 @@ export function ConnectedServicesPanel(): React.JSX.Element {
       // Browser is redirecting — the next render won't happen.
     } catch (err) {
       setBusyAction(null);
+      // Catch-all for the broken-session case too: `linkIdentity` /
+      // `signInWithOAuth` can both bubble GoTrue's "missing sub
+      // claim" / "Auth session missing" when the local JWT is
+      // stale. Recover instead of just toasting an error the user
+      // can't act on.
+      if (isBrokenSupabaseSessionError(err)) {
+        await recoverFromBrokenSupabaseSession({ router });
+        return;
+      }
       toast.error("Couldn't start sign-in", {
         description: describeError(err),
       });
@@ -328,6 +357,14 @@ export function ConnectedServicesPanel(): React.JSX.Element {
     (c) => c.provider === "google",
   );
 
+  // Supabase-flow Connect buttons (Outlook Mail/Calendar, Google
+  // Calendar) need a Supabase session under the hood. On deploys
+  // where Supabase isn't configured at all, those buttons would
+  // toast "Sign-in is not configured" on every click — hide them
+  // instead. Connect Gmail is on the legacy custom-OAuth flow and
+  // works either way, so it stays visible regardless.
+  const supabaseAvailable = isSupabaseConfigured();
+
   function handleConnectGmail(): void {
     if (!isGmailLinkConfigured()) {
       toast.error("Gmail is not configured", {
@@ -378,7 +415,7 @@ export function ConnectedServicesPanel(): React.JSX.Element {
             Connect Gmail
           </Button>
         )}
-        {!microsoftEmailLinked && (
+        {supabaseAvailable && !microsoftEmailLinked && (
           <Button
             variant="outline"
             size="sm"
@@ -402,7 +439,7 @@ export function ConnectedServicesPanel(): React.JSX.Element {
         busyAction={busyAction}
         onDisconnect={handleDisconnect}
       >
-        {!googleCalendarLinked && (
+        {supabaseAvailable && !googleCalendarLinked && (
           <Button
             variant="outline"
             size="sm"
@@ -417,7 +454,7 @@ export function ConnectedServicesPanel(): React.JSX.Element {
             Connect Google Calendar
           </Button>
         )}
-        {!microsoftCalendarLinked && (
+        {supabaseAvailable && !microsoftCalendarLinked && (
           <Button
             variant="outline"
             size="sm"
