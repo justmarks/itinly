@@ -425,6 +425,7 @@ export default function AuthCallbackPage(): React.JSX.Element {
         //    are on the session (best-effort).
         const pendingPeek = peekPendingConnection();
         let session: Session | null = null;
+        let exchangeFailureMessage: string | null = null;
         if (code && pendingPeek?.flow !== "link") {
           try {
             const { data, error: exchangeError } =
@@ -435,9 +436,11 @@ export default function AuthCallbackPage(): React.JSX.Element {
             // PKCE single-use; another tab may have already consumed
             // the code. Fall through to getSession to pick up that
             // tab's result. Log so we can spot prod-side double-tabs.
+            exchangeFailureMessage =
+              err instanceof Error ? err.message : String(err);
             console.warn(
               "[auth-callback] exchangeCodeForSession failed; falling back to getSession:",
-              err instanceof Error ? err.message : err,
+              exchangeFailureMessage,
             );
           }
         }
@@ -446,8 +449,19 @@ export default function AuthCallbackPage(): React.JSX.Element {
           session = existing.session;
         }
         if (!session) {
+          // Surface the actual exchange error when we have one — it
+          // tells future-Danas (and us) WHY the redirect didn't yield
+          // a session ("PKCE code verifier not found in storage" is
+          // diagnostic gold compared to the generic "provider redirect
+          // did not return a session" we used to show unconditionally).
+          // The exchange-error path is the common case here; the
+          // generic message only fires when there's no code AND no
+          // existing session, which usually means the user landed on
+          // /auth/callback directly without a redirect.
           setError(
-            "Sign-in could not be completed. The provider redirect did not return a session.",
+            exchangeFailureMessage
+              ? `Sign-in could not be completed: ${exchangeFailureMessage}`
+              : "Sign-in could not be completed. The provider redirect did not return a session.",
           );
           return;
         }
