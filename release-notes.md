@@ -36,7 +36,7 @@ Save destinations you haven't scheduled yet — museums, viewpoints, restaurants
 
 ## Sign-in + trust
 
-A handful of OAuth and session-recovery improvements landed since v1.2.0:
+OAuth and session-recovery improvements:
 
 - **Privacy + Terms surfaced in-app** with a Google Limited Use disclosure on the privacy page (sections renumbered to match the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy)). No ads, no model training, no human review without consent; narrow transfer to Anthropic + Supabase. Closes the gaps a Google OAuth verification reviewer would flag.
 - **OAuth sign-in buttons** repainted to match Google + Microsoft's published branding specs — full-colour Google "G," approved container colours, Microsoft logo on a white-on-cyan layout that matches the identity-platform reference. Required for OAuth verification on both providers.
