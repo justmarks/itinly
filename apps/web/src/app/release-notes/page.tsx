@@ -304,8 +304,8 @@ export default function ReleaseNotesPage(): React.JSX.Element {
 
             <Subsection title="Sign-in + trust">
               <p className="text-sm text-muted-foreground">
-                Two improvements that already landed direct-to-main in v1.3.0
-                + v1.4.0, but worth surfacing here:
+                A handful of OAuth and session-recovery improvements landed
+                since v1.2.0:
               </p>
               <ul className="list-disc space-y-2 pl-6">
                 <li>
