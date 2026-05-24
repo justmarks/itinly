@@ -156,7 +156,7 @@ export function MobileUserMenu({
         <DropdownMenuItem asChild>
           <Link href="/m/settings/account">
             <UserCog className="mr-2 h-4 w-4" />
-            Account
+            Settings
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={logout}>

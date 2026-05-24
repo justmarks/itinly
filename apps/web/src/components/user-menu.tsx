@@ -79,7 +79,7 @@ export function UserMenu(): React.JSX.Element | null {
         <DropdownMenuItem asChild>
           <Link href="/settings/account">
             <UserCog className="mr-2 h-4 w-4" />
-            Account
+            Settings
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={logout}>

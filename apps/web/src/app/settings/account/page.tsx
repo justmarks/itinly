@@ -32,7 +32,7 @@ function AccountSettingsBody(): React.JSX.Element | null {
           Back to trips
         </Link>
 
-        <h1 className="mb-6 text-2xl font-semibold">Account</h1>
+        <h1 className="mb-6 text-2xl font-semibold">Settings</h1>
 
         <section className="mb-8 flex items-center gap-4 rounded-md border border-border bg-card p-4">
           <UserAvatar
