@@ -1296,7 +1296,7 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
                 trip={trip}
                 onImportEmail={() => setHtmlImportOpen(true)}
                 canDelete={permission.isOwner}
-                ownShareId={!isOwner ? ownShareId : undefined}
+                ownShareId={ownShareId ?? undefined}
               />
             )}
             {/* Read-only recipients have no TripActionsMenu, so they
