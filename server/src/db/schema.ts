@@ -45,7 +45,7 @@ export const trips = pgTable(
     endDate: date("end_date").notNull(),
     status: text("status").notNull(),
     calendarId: text("calendar_id"),
-    schemaVersion: integer("schema_version").notNull().default(2),
+    schemaVersion: integer("schema_version").notNull().default(3),
     // date → city map. Empty/missing keys fall back to a derivation
     // (last-known city, segment city, etc.) the storage layer applies
     // on read. Keeping this as a small jsonb avoids a `trip_days`
@@ -137,6 +137,37 @@ export const todos = pgTable(
       .defaultNow(),
   },
   (t) => [index("todos_trip_order_idx").on(t.tripId, t.sortOrder)],
+);
+
+// Per-trip "Places to go" list. Points-of-interest the traveller wants
+// to remember but hasn't scheduled — distinct from todos (action) and
+// segments (date + time bound). Pinnable on the Map view. Cascade-
+// delete with the trip mirrors the segments / todos FK behaviour.
+// `user_id` is denormalised from the parent trip so the owner-only RLS
+// policy can use a single-column equality check (Supabase's PostgREST
+// surface is gated by RLS; the server's postgres role has BYPASSRLS).
+export const places = pgTable(
+  "places",
+  {
+    id: text("id").primaryKey(),
+    tripId: text("trip_id")
+      .notNull()
+      .references(() => trips.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    name: text("name"),
+    address: text("address"),
+    url: text("url"),
+    city: text("city"),
+    notes: text("notes"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("places_trip_order_idx").on(t.tripId, t.sortOrder)],
 );
 
 // Append-only audit log. The storage layer trims to the most recent

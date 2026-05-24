@@ -57,6 +57,13 @@
       "when": 1779379200000,
       "tag": "0007_per_user_calendar_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1779556219000,
+      "tag": "0008_places",
+      "breakpoints": true
     }
   ]
 }

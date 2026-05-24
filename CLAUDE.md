@@ -242,6 +242,22 @@ The brand and token system is iterated on in **Claude Designer** and exported as
 - Both impls share the same `StorageProvider` contract test suite at `server/__tests__/storage/contract.ts`.
 - Tests call `storage.clear()` in `beforeEach` to reset state.
 
+### Email-parsing debug
+
+When an email scan produces a parse failure (Zod-validation-failed-everything OR an in-flight exception that isn't billing/auth/overloaded), the route stashes the input it gave Claude on the `processed_emails` row:
+
+- `parse_error` (text) — short human-readable reason.
+- `raw` (jsonb) — `{ subject, from, body, receivedAt }` snapshot of what the parser was handed.
+
+The body stays attached until the next scan retries that email — at which point the row is overwritten with either a fresh failure snapshot (still broken) or a successful `"parsed"` row (which intentionally drops the body, since successes don't need debugging). So "GET /emails/failures" reflects "what's currently broken", not "everything that ever broke".
+
+Retrieval surfaces:
+
+- **API**: `GET /api/v1/emails/failures` returns `{ failures: [{ emailId, subject, from, parseError, rawEmail: { body, … }, recordedAt, … }] }`, newest first, scoped to the authenticated user.
+- **UI**: the desktop scan dialog's skipped-emails section shows a "Copy debug" button next to "Report" on each parser-failed row — clicking copies the JSON payload to the clipboard so it can be pasted into a support thread (or into a Claude conversation) to reproduce the bug.
+
+PII note: bodies can contain confirmation numbers, addresses, names. Treat the JSON payload as you would the user's mailbox.
+
 ### Naming
 
 - Files: `kebab-case.ts`

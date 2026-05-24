@@ -50,6 +50,7 @@ import {
   ChevronRight,
   Eye,
   Flag,
+  Bug,
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -64,6 +65,7 @@ import {
   type EmailProvider,
 } from "@/lib/use-active-provider";
 import { describeError, toastMutationError } from "@/lib/api-error";
+import { useApiClient } from "@itinly/api-client";
 import { useDemoMode } from "@/lib/demo";
 import {
   buildGmailLabelTree,
@@ -1437,6 +1439,62 @@ function SkippedEmailsSection({
   onReport: (email: EmailScanResult) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const client = useApiClient();
+  // Tracks "Copy debug…" buttons mid-flight by emailId so the row's
+  // button can flip to "Copied" / "Copying…" without affecting the
+  // others. Cleared by a 1.5s timeout per row.
+  const [debugState, setDebugState] = useState<Record<string, "loading" | "copied">>({});
+
+  /**
+   * Fetch the server's stored debug snapshot for this failed email
+   * (subject / from / body / parse error) and copy it as JSON to the
+   * clipboard. The user pastes the result into the conversation with
+   * Claude so we can repro the parser bug offline. Quietly degrades to
+   * a toast on failure — the row stays usable for the next attempt.
+   */
+  const handleCopyDebug = async (email: EmailScanResult) => {
+    setDebugState((s) => ({ ...s, [email.emailId]: "loading" }));
+    try {
+      const { failures } = await client.getEmailFailures();
+      const match = failures.find((f) => f.emailId === email.emailId);
+      if (!match) {
+        // The row's failure record may have been overwritten by a
+        // successful retry between the scan and the click. Fall back
+        // to whatever we have in memory so the click still does
+        // something useful.
+        const fallback = {
+          emailId: email.emailId,
+          subject: email.subject,
+          from: email.from,
+          receivedAt: email.receivedAt,
+          parseError: email.error ?? "(no parse error recorded — record may have been overwritten by a successful retry)",
+          rawEmail: null,
+        };
+        await navigator.clipboard.writeText(
+          JSON.stringify(fallback, null, 2),
+        );
+      } else {
+        await navigator.clipboard.writeText(JSON.stringify(match, null, 2));
+      }
+      setDebugState((s) => ({ ...s, [email.emailId]: "copied" }));
+      setTimeout(
+        () =>
+          setDebugState((s) => {
+            const next = { ...s };
+            delete next[email.emailId];
+            return next;
+          }),
+        1500,
+      );
+    } catch (err) {
+      setDebugState((s) => {
+        const next = { ...s };
+        delete next[email.emailId];
+        return next;
+      });
+      toast.error("Couldn't copy debug info", { description: describeError(err) });
+    }
+  };
 
   return (
     <div className="mt-4">
@@ -1454,38 +1512,61 @@ function SkippedEmailsSection({
       </button>
       {expanded && (
         <div className="mt-2 space-y-1.5">
-          {emails.map((email) => (
-            <div
-              key={email.emailId}
-              className="flex items-start justify-between gap-2 rounded border border-muted bg-muted/20 px-2.5 py-1.5"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium">{email.subject}</p>
-                <p className="truncate text-[10px] text-muted-foreground">
-                  {email.from} &middot;{" "}
-                  {new Date(email.receivedAt).toLocaleDateString()}
-                  {email.parseStatus === "failed" && (
-                    <>
-                      {" "}
-                      &middot;{" "}
-                      <span style={{ color: "var(--status-warn-fg)" }}>parser failed</span>
-                    </>
-                  )}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 shrink-0 px-2 text-[10px] text-muted-foreground hover:text-foreground"
-                onClick={() => onReport(email)}
+          {emails.map((email) => {
+            const isFailed = email.parseStatus === "failed";
+            const debug = debugState[email.emailId];
+            return (
+              <div
+                key={email.emailId}
+                className="flex items-start justify-between gap-2 rounded border border-muted bg-muted/20 px-2.5 py-1.5"
               >
-                <Flag className="mr-1 h-3 w-3" />
-                Report
-              </Button>
-            </div>
-          ))}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium">{email.subject}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">
+                    {email.from} &middot;{" "}
+                    {new Date(email.receivedAt).toLocaleDateString()}
+                    {isFailed && (
+                      <>
+                        {" "}
+                        &middot;{" "}
+                        <span style={{ color: "var(--status-warn-fg)" }}>parser failed</span>
+                      </>
+                    )}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {isFailed && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 shrink-0 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                      onClick={() => handleCopyDebug(email)}
+                      disabled={debug === "loading"}
+                      title="Copy email body + parse error as JSON for sharing with support / Claude"
+                    >
+                      <Bug className="mr-1 h-3 w-3" />
+                      {debug === "copied"
+                        ? "Copied"
+                        : debug === "loading"
+                          ? "Copying…"
+                          : "Copy debug"}
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 shrink-0 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                    onClick={() => onReport(email)}
+                  >
+                    <Flag className="mr-1 h-3 w-3" />
+                    Report
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
           <p className="text-[10px] text-muted-foreground italic">
-            These emails are likely duplicates of bookings already extracted, or not related to travel segments. They won&apos;t be scanned again. If one should have been parsed, hit Report and we&apos;ll take a look.
+            These emails are likely duplicates of bookings already extracted, or not related to travel segments. They won&apos;t be scanned again. If one should have been parsed, hit Report and we&apos;ll take a look. Parser failures expose a “Copy debug” button — paste the JSON to support and we&apos;ll repro it.
           </p>
         </div>
       )}

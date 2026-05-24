@@ -132,6 +132,68 @@ export const todoSchema = z.object({
   sortOrder: z.number().int().min(0),
 });
 
+/**
+ * Schema for a `Place` — a per-trip point-of-interest with no date and
+ * no segment binding. At least one of `name`, `address`, or `url` must
+ * be supplied so the row carries enough signal to render and geocode;
+ * empty places get rejected here rather than at row insertion.
+ */
+export const placeSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().max(200).optional(),
+    address: z.string().max(500).optional(),
+    url: z.string().url().max(2000).optional(),
+    city: z.string().max(120).optional(),
+    notes: z.string().max(2000).optional(),
+    sortOrder: z.number().int().min(0),
+    createdAt: z.string().datetime(),
+  })
+  .refine(
+    (p) => Boolean(p.name?.trim() || p.address?.trim() || p.url?.trim()),
+    { message: "At least one of name, address, or url is required" },
+  );
+
+/** Schema for creating a place. Server fills in id / sortOrder / createdAt. */
+export const createPlaceSchema = z
+  .object({
+    name: z.string().max(200).optional(),
+    address: z.string().max(500).optional(),
+    url: z.string().url().max(2000).optional(),
+    city: z.string().max(120).optional(),
+    notes: z.string().max(2000).optional(),
+  })
+  .refine(
+    (p) => Boolean(p.name?.trim() || p.address?.trim() || p.url?.trim()),
+    { message: "At least one of name, address, or url is required" },
+  );
+
+/**
+ * Schema for editing a place — every field optional. `null` clears a
+ * field; `undefined` (or absent) leaves it untouched. The "at least one
+ * of name/address/url" invariant is enforced server-side after the
+ * patch has been applied.
+ */
+export const updatePlaceSchema = z
+  .object({
+    name: z.string().max(200).nullable().optional(),
+    address: z.string().max(500).nullable().optional(),
+    url: z.string().url().max(2000).nullable().optional(),
+    city: z.string().max(120).nullable().optional(),
+    notes: z.string().max(2000).nullable().optional(),
+    sortOrder: z.number().int().min(0).optional(),
+  })
+  .refine(
+    (data) =>
+      data.name !== undefined ||
+      data.address !== undefined ||
+      data.url !== undefined ||
+      data.city !== undefined ||
+      data.notes !== undefined ||
+      data.sortOrder !== undefined,
+    { message: "At least one field must be provided" },
+  );
+
 export const tripShareSchema = z.object({
   id: z.string().min(1),
   shareToken: z.string().min(1),
@@ -201,6 +263,9 @@ export const TRIP_HISTORY_KINDS = [
   "share.create",
   "share.revoke",
   "share.leave",
+  "place.create",
+  "place.update",
+  "place.delete",
   "bulk.import_xlsx",
   "bulk.email_apply",
   "bulk.confirm_all",
@@ -228,6 +293,9 @@ export const tripSchema = z.object({
   days: z.array(tripDaySchema),
   todos: z.array(todoSchema),
   shares: z.array(tripShareSchema),
+  // Optional so trips persisted before places existed still parse
+  // cleanly. `migrateTrip` fills it in with `[]` on read.
+  places: z.array(placeSchema).optional(),
   // Optional so trips persisted before history existed still parse cleanly.
   // `migrateTrip` fills it in with `[]` on read.
   history: z.array(tripHistoryEntrySchema).optional(),
@@ -719,6 +787,8 @@ export type CreateSegmentInput = z.infer<typeof createSegmentSchema>;
 export type UpdateSegmentInput = z.infer<typeof updateSegmentSchema>;
 export type CreateTodoInput = z.infer<typeof createTodoSchema>;
 export type UpdateTodoInput = z.infer<typeof updateTodoSchema>;
+export type CreatePlaceInput = z.infer<typeof createPlaceSchema>;
+export type UpdatePlaceInput = z.infer<typeof updatePlaceSchema>;
 export type CreateShareInput = z.infer<typeof createShareSchema>;
 export type CreateShareRuleInput = z.infer<typeof createShareRuleSchema>;
 export type UpdateShareRuleInput = z.infer<typeof updateShareRuleSchema>;

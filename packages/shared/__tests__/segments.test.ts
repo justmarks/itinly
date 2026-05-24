@@ -10,6 +10,7 @@ function makeTrip(overrides: Partial<Trip> = {}): Trip {
     status: "planning",
     days: [],
     todos: [],
+    places: [],
     shares: [],
     createdAt: "2020-01-27T00:00:00Z",
     updatedAt: "2020-01-27T00:00:00Z",

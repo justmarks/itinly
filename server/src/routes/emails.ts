@@ -1153,6 +1153,22 @@ export function createEmailRoutes(options: EmailRoutesOptions): Router {
                 ? "failed"
                 : "skipped",
             rawParseResult: hasTravel ? scanResult : undefined,
+            // Capture the parsing input on validation-failed-everything
+            // so the failures-debug endpoint can serve enough to repro
+            // the issue offline (subject / from / body). Successful
+            // parses don't need the body — it'd just bloat storage —
+            // and "skipped" results aren't bugs to investigate.
+            ...(validationFailedEverything
+              ? {
+                  parseError: `Claude returned ${rawItemCount} item(s) but none passed schema validation (${invalidCount} invalid).`,
+                  rawEmail: {
+                    subject: email.subject,
+                    from: email.from,
+                    body: email.bodyText,
+                    receivedAt: email.receivedAt,
+                  },
+                }
+              : {}),
             provider: emailProvider,
             accountEmail,
             createdAt: new Date().toISOString(),
@@ -1247,7 +1263,13 @@ export function createEmailRoutes(options: EmailRoutesOptions): Router {
             return;
           }
 
-          // Per-email errors: don't save, allow retry on next scan
+          // Per-email exception: surface to the UI AND persist as
+          // "failed" with the raw body so the failures-debug endpoint
+          // can serve enough to repro the issue offline. `parseStatus:
+          // "failed"` rows are automatically retried on the next scan
+          // by the dedup branch above, so saving here doesn't block
+          // recovery — it just retains the debug snapshot until the
+          // retry overwrites it (with new content if Claude succeeds).
           newResults.push({
             emailId: email.id,
             subject: email.subject,
@@ -1256,6 +1278,24 @@ export function createEmailRoutes(options: EmailRoutesOptions): Router {
             parsedSegments: [],
             parseStatus: "failed",
             error: errMsg,
+          });
+          newProcessedEmails.push({
+            gmailMessageId: email.id,
+            gmailThreadId: email.threadId,
+            subject: email.subject,
+            fromAddress: email.from,
+            receivedAt: email.receivedAt,
+            parseStatus: "failed",
+            parseError: errMsg,
+            rawEmail: {
+              subject: email.subject,
+              from: email.from,
+              body: email.bodyText,
+              receivedAt: email.receivedAt,
+            },
+            provider: emailProvider,
+            accountEmail,
+            createdAt: new Date().toISOString(),
           });
         }
       }
@@ -1623,6 +1663,21 @@ export function createEmailRoutes(options: EmailRoutesOptions): Router {
                 ? "failed"
                 : "skipped",
             rawParseResult: hasTravel ? scanResult : undefined,
+            // Mirror the non-streaming variant: stash subject/from/body
+            // on validation-failed-everything so the failures-debug
+            // endpoint can serve it. See route at the top of this file
+            // for the rationale.
+            ...(validationFailedEverything
+              ? {
+                  parseError: `Claude returned ${rawItemCount} item(s) but none passed schema validation (${invalidCount} invalid).`,
+                  rawEmail: {
+                    subject: email.subject,
+                    from: email.from,
+                    body: email.bodyText,
+                    receivedAt: email.receivedAt,
+                  },
+                }
+              : {}),
             provider: emailProvider,
             accountEmail,
             createdAt: new Date().toISOString(),
@@ -1711,6 +1766,10 @@ export function createEmailRoutes(options: EmailRoutesOptions): Router {
             return;
           }
 
+          // Per-email exception: surface to the UI AND persist as
+          // "failed" with the raw body so the failures-debug endpoint
+          // can serve enough to repro the issue offline. See the
+          // non-streaming variant for the full rationale.
           newResults.push({
             emailId: email.id,
             subject: email.subject,
@@ -1719,6 +1778,24 @@ export function createEmailRoutes(options: EmailRoutesOptions): Router {
             parsedSegments: [],
             parseStatus: "failed",
             error: errMsg,
+          });
+          newProcessedEmails.push({
+            gmailMessageId: email.id,
+            gmailThreadId: email.threadId,
+            subject: email.subject,
+            fromAddress: email.from,
+            receivedAt: email.receivedAt,
+            parseStatus: "failed",
+            parseError: errMsg,
+            rawEmail: {
+              subject: email.subject,
+              from: email.from,
+              body: email.bodyText,
+              receivedAt: email.receivedAt,
+            },
+            provider: emailProvider,
+            accountEmail,
+            createdAt: new Date().toISOString(),
           });
         }
       }
@@ -2637,6 +2714,49 @@ export function createEmailRoutes(options: EmailRoutesOptions): Router {
     } catch (err) {
       console.error("GET /emails/processed error:", err);
       res.status(500).json({ error: "Failed to list processed emails" });
+    }
+  });
+
+  /**
+   * GET /emails/failures
+   * Lists every `parseStatus === "failed"` row for the current user
+   * with the raw email body that was sent to the parser, plus the
+   * specific error message. Newest first.
+   *
+   * The body lives in `processed_emails.raw` jsonb and stays attached
+   * to the row until the next scan retries the email — at which point
+   * it gets overwritten with either a fresh failure snapshot (still
+   * broken) or a successful `"parsed"` row (no body retained on
+   * success). So the list reflects "what's currently broken", not
+   * "everything that ever broke".
+   *
+   * Owner-only by construction: the per-request storage resolver is
+   * already scoped to `req.userId`, so users can't see each other's
+   * failures. Used to repro parser regressions offline — see the
+   * "Email parsing debug" section in CLAUDE.md.
+   */
+  router.get("/failures", async (req: Request, res: Response) => {
+    try {
+      const storage = getStorage(req);
+      const all = await storage.getProcessedEmails();
+      const failures = all
+        .filter((e) => e.parseStatus === "failed")
+        .map((e) => ({
+          emailId: e.gmailMessageId,
+          subject: e.subject ?? null,
+          from: e.fromAddress ?? null,
+          receivedAt: e.receivedAt ?? null,
+          provider: e.provider ?? null,
+          accountEmail: e.accountEmail ?? null,
+          parseError: e.parseError ?? null,
+          rawEmail: e.rawEmail ?? null,
+          recordedAt: e.createdAt,
+        }))
+        .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
+      res.json({ failures });
+    } catch (err) {
+      console.error("GET /emails/failures error:", err);
+      res.status(500).json({ error: "Failed to list parse failures" });
     }
   });
 

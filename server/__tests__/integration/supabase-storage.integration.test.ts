@@ -70,6 +70,7 @@ describe("SupabaseStorage", () => {
           trips,
           segments,
           todos,
+          places,
           trip_history,
           share_rules,
           processed_emails,

@@ -6,6 +6,8 @@ import {
   updateSegmentSchema,
   createTodoSchema,
   updateTodoSchema,
+  createPlaceSchema,
+  updatePlaceSchema,
   createShareSchema,
   xlsxImportRequestSchema,
   generateId,
@@ -17,6 +19,7 @@ import {
   primaryLocationFor,
   formatTripDateRange,
   CURRENT_TRIP_SCHEMA_VERSION,
+  type Place,
   type Trip,
   type TripDay,
   type Segment,
@@ -298,6 +301,7 @@ export function createTripRoutes(options: TripRoutesOptions): Router {
       status: "planning",
       days,
       todos: [],
+      places: [],
       shares: [],
       history: [],
       createdAt: now,
@@ -476,6 +480,7 @@ export function createTripRoutes(options: TripRoutesOptions): Router {
       status: "planning",
       days,
       todos: [],
+      places: [],
       shares: [],
       history: [],
       createdAt: now,
@@ -1226,6 +1231,158 @@ export function createTripRoutes(options: TripRoutesOptions): Router {
         req,
         "todo.delete",
         `Removed to-do "${removed.text}"`,
+        { entityId: removed.id },
+      );
+      await storage.saveTrip(trip);
+      res.status(204).send();
+      void recordContributorActivity(access, req, "edit");
+    },
+  );
+
+  // ─── Places ─────────────────────────────────────────────
+  //
+  // Per-trip "Places to go" list — points-of-interest the traveller
+  // wants to remember but hasn't scheduled. Mirrors the to-do CRUD
+  // shape (per-trip, no date binding) but with a different validator
+  // and history kind. Pinnable on the Map view.
+
+  router.get("/:tripId/places", async (req: Request, res: Response) => {
+    const access = await accessTrip(req, req.params.tripId as string, "view");
+    if (!access.ok) return denyAccess(res, access);
+    res.json(access.trip.places ?? []);
+  });
+
+  router.post(
+    "/:tripId/places",
+    async (req: Request, res: Response) => {
+      const access = await accessTrip(req, req.params.tripId as string, "edit");
+      if (!access.ok) return denyAccess(res, access);
+      const { trip, storage } = access;
+      if (!Array.isArray(trip.places)) trip.places = [];
+
+      const parsed = createPlaceSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: parsed.error.issues });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const place: Place = {
+        id: generateId(),
+        sortOrder: trip.places.length,
+        createdAt: now,
+        ...(parsed.data.name?.trim() ? { name: parsed.data.name.trim() } : {}),
+        ...(parsed.data.address?.trim() ? { address: parsed.data.address.trim() } : {}),
+        ...(parsed.data.url?.trim() ? { url: parsed.data.url.trim() } : {}),
+        ...(parsed.data.city?.trim() ? { city: parsed.data.city.trim() } : {}),
+        ...(parsed.data.notes?.trim() ? { notes: parsed.data.notes.trim() } : {}),
+      };
+
+      trip.places.push(place);
+      trip.updatedAt = now;
+      recordHistory(
+        trip,
+        req,
+        "place.create",
+        `Added place "${place.name ?? place.address ?? place.url ?? "(unnamed)"}"`,
+        { entityId: place.id },
+      );
+      await storage.saveTrip(trip);
+      res.status(201).json(place);
+      void recordContributorActivity(access, req, "edit");
+    },
+  );
+
+  router.put(
+    "/:tripId/places/:placeId",
+    async (req: Request, res: Response) => {
+      const access = await accessTrip(req, req.params.tripId as string, "edit");
+      if (!access.ok) return denyAccess(res, access);
+      const { trip, storage } = access;
+      if (!Array.isArray(trip.places)) trip.places = [];
+
+      const place = trip.places.find(
+        (p) => p.id === (req.params.placeId as string),
+      );
+      if (!place) {
+        res.status(404).json({ error: "Place not found" });
+        return;
+      }
+
+      const parsed = updatePlaceSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: parsed.error.issues });
+        return;
+      }
+
+      // `null` clears a field; `undefined` leaves it untouched; a
+      // non-empty string sets it (after trimming). Mirrors the segment
+      // PUT shape so client mutation patches stay homogeneous.
+      const patch = parsed.data;
+      const apply = (key: keyof Place, value: string | null | undefined) => {
+        if (value === undefined) return;
+        if (value === null || value === "") {
+          delete (place as unknown as Record<string, unknown>)[key];
+        } else {
+          (place as unknown as Record<string, unknown>)[key] = value.trim();
+        }
+      };
+      apply("name", patch.name);
+      apply("address", patch.address);
+      apply("url", patch.url);
+      apply("city", patch.city);
+      apply("notes", patch.notes);
+      if (patch.sortOrder !== undefined) place.sortOrder = patch.sortOrder;
+
+      // Enforce the "at least one of name / address / url" invariant
+      // *after* the patch lands. The schema can't see the pre-patch
+      // state, so a PUT that clears the last identifying field has to
+      // be rejected here.
+      if (!place.name?.trim() && !place.address?.trim() && !place.url?.trim()) {
+        res.status(400).json({
+          error: "At least one of name, address, or url is required",
+        });
+        return;
+      }
+
+      trip.updatedAt = new Date().toISOString();
+      recordHistory(
+        trip,
+        req,
+        "place.update",
+        `Updated place "${place.name ?? place.address ?? place.url ?? "(unnamed)"}"`,
+        { entityId: place.id },
+      );
+      await storage.saveTrip(trip);
+      res.json(place);
+      void recordContributorActivity(access, req, "edit");
+    },
+  );
+
+  router.delete(
+    "/:tripId/places/:placeId",
+    async (req: Request, res: Response) => {
+      const access = await accessTrip(req, req.params.tripId as string, "edit");
+      if (!access.ok) return denyAccess(res, access);
+      const { trip, storage } = access;
+      if (!Array.isArray(trip.places)) trip.places = [];
+
+      const idx = trip.places.findIndex(
+        (p) => p.id === (req.params.placeId as string),
+      );
+      if (idx < 0) {
+        res.status(404).json({ error: "Place not found" });
+        return;
+      }
+
+      const removed = trip.places[idx];
+      trip.places.splice(idx, 1);
+      trip.updatedAt = new Date().toISOString();
+      recordHistory(
+        trip,
+        req,
+        "place.delete",
+        `Removed place "${removed.name ?? removed.address ?? removed.url ?? "(unnamed)"}"`,
         { entityId: removed.id },
       );
       await storage.saveTrip(trip);

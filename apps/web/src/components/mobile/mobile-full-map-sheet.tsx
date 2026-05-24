@@ -10,7 +10,13 @@ import {
   useMap,
   useMapsLibrary,
 } from "@vis.gl/react-google-maps";
-import type { Trip, TripDay, Segment, SegmentType } from "@itinly/shared";
+import type {
+  Place,
+  Trip,
+  TripDay,
+  Segment,
+  SegmentType,
+} from "@itinly/shared";
 import { ExternalLink, MapPin, X } from "lucide-react";
 import {
   useCategoryPinColors,
@@ -40,15 +46,25 @@ const CATEGORY_LABEL: Record<PinCategory, string> = {
   dining: "Dining",
   activity: "Activity",
   transport: "Transport",
+  place: "Places to go",
 };
 
+/**
+ * A pin sourced from either an itinerary segment (carries `segment` +
+ * `day`) or a standalone "places to go" entry (carries `place`). The
+ * `day` field is `null` for places — they aren't bound to a date — so
+ * the day-filter strip's "no day match" branch hides them when the user
+ * scopes to a single day. (Keeping place pins visible in "All" mode
+ * matches the desktop Map view's behaviour.)
+ */
 interface RawPin {
   id: string;
   title: string;
   query: string;
   category: PinCategory;
-  segment: Segment;
-  day: TripDay;
+  segment?: Segment;
+  day: TripDay | null;
+  place?: Place;
 }
 
 interface ResolvedPin extends RawPin {
@@ -64,8 +80,23 @@ function buildQuery(s: Segment, day: TripDay): string {
   return day.city;
 }
 
+function buildPlaceQuery(p: Place): string {
+  if (p.address) return p.address;
+  if (p.name && p.city) return `${p.name}, ${p.city}`;
+  if (p.name) return p.name;
+  if (p.city) return p.city;
+  if (p.url) {
+    try {
+      return new URL(p.url).hostname;
+    } catch {
+      // ignore — invalid URLs shouldn't have passed validation upstream
+    }
+  }
+  return "";
+}
+
 function rawPinsForTrip(trip: Trip): RawPin[] {
-  return trip.days.flatMap((day) =>
+  const fromSegments = trip.days.flatMap((day) =>
     day.segments.flatMap((s) => {
       const cat = getCategory(s.type);
       if (!cat) return [];
@@ -77,10 +108,25 @@ function rawPinsForTrip(trip: Trip): RawPin[] {
           category: cat,
           segment: s,
           day,
-        },
+        } satisfies RawPin,
       ];
     }),
   );
+  const fromPlaces = (trip.places ?? []).flatMap((place) => {
+    const query = buildPlaceQuery(place);
+    if (!query) return [];
+    return [
+      {
+        id: `place-${place.id}`,
+        title: place.name ?? place.address ?? place.url ?? "Place",
+        query,
+        category: "place" as const,
+        day: null,
+        place,
+      } satisfies RawPin,
+    ];
+  });
+  return [...fromSegments, ...fromPlaces];
 }
 
 function dayShort(date: string) {
@@ -319,7 +365,11 @@ function FullMapInner({
 
   const visiblePins = useMemo(
     () =>
-      filterDate ? resolved.filter((p) => p.day.date === filterDate) : resolved,
+      filterDate
+        ? // Places have no date — they're hidden when the user scopes to a
+          // specific day. "All" shows them alongside the day's segments.
+          resolved.filter((p) => p.day?.date === filterDate)
+        : resolved,
     [resolved, filterDate],
   );
 
@@ -380,29 +430,69 @@ function FullMapInner({
           pixelOffset={[0, -40]}
         >
           <div className="text-sm text-foreground" style={{ maxWidth: 240 }}>
-            <p className="mb-0.5 font-semibold">
-              {selectedPin.title}
-            </p>
-            <p className="mb-1 text-xs text-muted-foreground">
-              {CATEGORY_LABEL[selectedPin.category]} ·{" "}
-              {dayShort(selectedPin.day.date)}
-              {selectedPin.segment.startTime &&
-                ` · ${selectedPin.segment.startTime}`}
-            </p>
-            {selectedPin.segment.address && (
-              <p className="mb-1.5 text-xs text-muted-foreground">
-                {selectedPin.segment.address}
-              </p>
+            <p className="mb-0.5 font-semibold">{selectedPin.title}</p>
+            {selectedPin.category === "place" ? (
+              <>
+                <p className="mb-1 text-xs text-muted-foreground">
+                  {CATEGORY_LABEL[selectedPin.category]}
+                  {selectedPin.place?.city && ` · ${selectedPin.place.city}`}
+                </p>
+                {selectedPin.place?.address && (
+                  <p className="mb-1.5 text-xs text-muted-foreground">
+                    {selectedPin.place.address}
+                  </p>
+                )}
+                {selectedPin.place?.notes && (
+                  <p className="mb-1.5 text-xs text-muted-foreground/80">
+                    {selectedPin.place.notes}
+                  </p>
+                )}
+                {selectedPin.place?.url && (
+                  <a
+                    href={selectedPin.place.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mb-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    Open link
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+                <br />
+                <a
+                  href={mapsSearchUrl(selectedPin.query)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  Open in Google Maps
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </>
+            ) : (
+              <>
+                <p className="mb-1 text-xs text-muted-foreground">
+                  {CATEGORY_LABEL[selectedPin.category]} ·{" "}
+                  {selectedPin.day && dayShort(selectedPin.day.date)}
+                  {selectedPin.segment?.startTime &&
+                    ` · ${selectedPin.segment.startTime}`}
+                </p>
+                {selectedPin.segment?.address && (
+                  <p className="mb-1.5 text-xs text-muted-foreground">
+                    {selectedPin.segment.address}
+                  </p>
+                )}
+                <a
+                  href={mapsSearchUrl(selectedPin.query)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  Open in Google Maps
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </>
             )}
-            <a
-              href={mapsSearchUrl(selectedPin.query)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-            >
-              Open in Google Maps
-              <ExternalLink className="h-3 w-3" />
-            </a>
           </div>
         </InfoWindow>
       )}

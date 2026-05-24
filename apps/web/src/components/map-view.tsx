@@ -10,7 +10,7 @@ import {
   useMap,
   useMapsLibrary,
 } from "@vis.gl/react-google-maps";
-import type { Trip, TripDay, Segment, SegmentType } from "@itinly/shared";
+import type { Trip, TripDay, Segment, SegmentType, Place } from "@itinly/shared";
 import { ExternalLink, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCategoryPinColors } from "@/lib/category-pin-colors";
@@ -20,7 +20,7 @@ import { useCategoryPinColors } from "@/lib/category-pin-colors";
 // Flights are excluded — airports aren't useful map destinations
 const EXCLUDED_TYPES = new Set<SegmentType>(["flight"]);
 
-type Category = "hotel" | "dining" | "activity" | "transport";
+type Category = "hotel" | "dining" | "activity" | "transport" | "place";
 
 function getCategory(type: SegmentType): Category | null {
   if (EXCLUDED_TYPES.has(type)) return null;
@@ -49,25 +49,40 @@ const CATEGORY_LABEL: Record<Category, string> = {
   dining:    "Dining",
   activity:  "Activity",
   transport: "Transport",
+  place:     "Places to go",
 };
 
 /**
  * Display order for the legend, the per-category counts, and any other
- * place that fans the four categories out into a list. Locked in this
+ * place that fans the categories out into a list. Locked in this
  * order so it matches the Timeline view's grouped-rows order:
- * Transport, Lodging, Activity, Dining.
+ * Transport, Lodging, Activity, Dining — followed by the standalone
+ * Places-to-go bucket.
  */
-const CATEGORY_ORDER: Category[] = ["transport", "hotel", "activity", "dining"];
+const CATEGORY_ORDER: Category[] = [
+  "transport",
+  "hotel",
+  "activity",
+  "dining",
+  "place",
+];
 
 // ── Data types ────────────────────────────────────────────────
 
+/**
+ * A pin sourced either from a scheduled segment (carries `segment` +
+ * `day`) or from a standalone "place to go" (carries `place`). The
+ * map renders both with the same shape; the InfoWindow branches on
+ * `category === "place"` to pick its detail strings.
+ */
 interface RawPin {
   id: string;
   title: string;
   geocodeQuery: string;
   category: Category;
-  segment: Segment;
-  day: TripDay;
+  segment?: Segment;
+  day?: TripDay;
+  place?: Place;
 }
 
 interface ResolvedPin extends RawPin {
@@ -89,8 +104,25 @@ function mapsSearchUrl(query: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+function buildPlaceGeocodeQuery(place: Place): string {
+  if (place.address) return place.address;
+  if (place.name && place.city) return `${place.name}, ${place.city}`;
+  if (place.name) return place.name;
+  if (place.city) return place.city;
+  // Fallback to the URL host so we at least try to geocode something
+  // when the user only filled in a URL — last resort.
+  if (place.url) {
+    try {
+      return new URL(place.url).hostname;
+    } catch {
+      // ignore — invalid URLs shouldn't have passed validation upstream
+    }
+  }
+  return "";
+}
+
 function buildRawPins(trip: Trip): RawPin[] {
-  return trip.days.flatMap((day) =>
+  const fromSegments = trip.days.flatMap((day) =>
     day.segments.flatMap((segment) => {
       const category = getCategory(segment.type);
       if (!category) return [];
@@ -102,10 +134,24 @@ function buildRawPins(trip: Trip): RawPin[] {
           category,
           segment,
           day,
-        },
+        } satisfies RawPin,
       ];
     }),
   );
+  const fromPlaces = (trip.places ?? []).flatMap((place) => {
+    const query = buildPlaceGeocodeQuery(place);
+    if (!query) return [];
+    return [
+      {
+        id: `place-${place.id}`,
+        title: place.name ?? place.address ?? place.url ?? "Place",
+        geocodeQuery: query,
+        category: "place" as const,
+        place,
+      } satisfies RawPin,
+    ];
+  });
+  return [...fromSegments, ...fromPlaces];
 }
 
 // ── KML export ────────────────────────────────────────────────
@@ -116,6 +162,7 @@ function buildKml(tripTitle: string, pins: ResolvedPin[]): string {
     dining:    "ff2626dc", // red
     activity:  "ff4aa34a", // green
     transport: "ffed3a7c", // purple
+    place:     "ff1c50d9", // vermilion / orange — KML AABBGGRR of #D9501C
   };
 
   const styles = (Object.keys(styleColors) as Category[])
@@ -126,15 +173,19 @@ function buildKml(tripTitle: string, pins: ResolvedPin[]): string {
     .join("\n    ");
 
   const placemarks = pins
-    .map(
-      (p) =>
-        `<Placemark>
+    .map((p) => {
+      const description =
+        p.category === "place"
+          ? CATEGORY_LABEL[p.category] +
+            (p.place?.city ? ` · ${p.place.city}` : "")
+          : `${escapeXml(p.day!.date)} · ${CATEGORY_LABEL[p.category]}${p.segment?.startTime ? ` · ${p.segment.startTime}` : ""}`;
+      return `<Placemark>
       <name>${escapeXml(p.title)}</name>
-      <description>${escapeXml(p.day.date)} · ${CATEGORY_LABEL[p.category]}${p.segment.startTime ? ` · ${p.segment.startTime}` : ""}</description>
+      <description>${description}</description>
       <styleUrl>#${p.category}</styleUrl>
       <Point><coordinates>${p.position.lng},${p.position.lat},0</coordinates></Point>
-    </Placemark>`,
-    )
+    </Placemark>`;
+    })
     .join("\n    ");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -281,31 +332,79 @@ function MapInner({
             >
               <div className="text-sm text-foreground" style={{ maxWidth: 240 }}>
                 <p className="mb-0.5 font-semibold">{selectedPin.title}</p>
-                <p className="mb-1 text-xs text-muted-foreground">
-                  {CATEGORY_LABEL[selectedPin.category]} ·{" "}
-                  {new Date(selectedPin.day.date + "T00:00:00").toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                  {selectedPin.segment.startTime && ` · ${selectedPin.segment.startTime}`}
-                </p>
-                {selectedPin.segment.address && (
-                  <p className="mb-1.5 text-xs text-muted-foreground">{selectedPin.segment.address}</p>
+                {selectedPin.category === "place" ? (
+                  <>
+                    <p className="mb-1 text-xs text-muted-foreground">
+                      {CATEGORY_LABEL[selectedPin.category]}
+                      {selectedPin.place?.city && ` · ${selectedPin.place.city}`}
+                    </p>
+                    {selectedPin.place?.address && (
+                      <p className="mb-1.5 text-xs text-muted-foreground">
+                        {selectedPin.place.address}
+                      </p>
+                    )}
+                    {selectedPin.place?.notes && (
+                      <p className="mb-1.5 text-xs text-muted-foreground/80">
+                        {selectedPin.place.notes}
+                      </p>
+                    )}
+                    {selectedPin.place?.url && (
+                      <a
+                        href={selectedPin.place.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mb-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                      >
+                        Open link
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                    <br />
+                    <a
+                      href={mapsSearchUrl(selectedPin.geocodeQuery)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                    >
+                      Open in Google Maps
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    <p className="mb-1 text-xs text-muted-foreground">
+                      {CATEGORY_LABEL[selectedPin.category]} ·{" "}
+                      {selectedPin.day &&
+                        new Date(
+                          selectedPin.day.date + "T00:00:00",
+                        ).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      {selectedPin.segment?.startTime &&
+                        ` · ${selectedPin.segment.startTime}`}
+                    </p>
+                    {selectedPin.segment?.address && (
+                      <p className="mb-1.5 text-xs text-muted-foreground">
+                        {selectedPin.segment.address}
+                      </p>
+                    )}
+                    {selectedPin.segment?.confirmationCode && (
+                      <p className="mb-1.5 font-mono text-xs text-muted-foreground/80">
+                        #{selectedPin.segment.confirmationCode}
+                      </p>
+                    )}
+                    <a
+                      href={mapsSearchUrl(selectedPin.geocodeQuery)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                    >
+                      Open in Google Maps
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </>
                 )}
-                {selectedPin.segment.confirmationCode && (
-                  <p className="mb-1.5 font-mono text-xs text-muted-foreground/80">
-                    #{selectedPin.segment.confirmationCode}
-                  </p>
-                )}
-                <a
-                  href={mapsSearchUrl(selectedPin.geocodeQuery)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                >
-                  Open in Google Maps
-                  <ExternalLink className="h-3 w-3" />
-                </a>
               </div>
             </InfoWindow>
           )}
@@ -350,7 +449,8 @@ export function MapView({ trip }: { trip: Trip }): React.JSX.Element | null {
   if (rawPins.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-card px-8 py-16 text-center text-sm text-muted-foreground">
-        No mappable locations yet. Add hotels, restaurants, or activities to see them here.
+        No mappable locations yet. Add hotels, restaurants, activities, or
+        places to go to see them here.
       </div>
     );
   }

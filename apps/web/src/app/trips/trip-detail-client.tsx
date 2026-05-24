@@ -70,6 +70,7 @@ import { ShareTripDialog } from "@/components/share-trip-dialog";
 import { ItineraryDay, computeOngoingStays } from "@/components/itinerary-day";
 import { TripTodos } from "@/components/trip-todos";
 import { TripCosts } from "@/components/trip-costs";
+import { TripPlaces } from "@/components/trip-places";
 import { TimelineView } from "@/components/timeline-view";
 import { MapView } from "@/components/map-view";
 import { TripHistory } from "@/components/trip-history";
@@ -1047,12 +1048,20 @@ function CalendarSyncDialogs({
 }
 
 
-type Tab = "itinerary" | "timeline" | "map" | "costs" | "todos" | "history";
+type Tab =
+  | "itinerary"
+  | "timeline"
+  | "map"
+  | "places"
+  | "costs"
+  | "todos"
+  | "history";
 
 const TAB_LABELS: Record<Tab, string> = {
   itinerary: "Itinerary",
   timeline:  "Timeline",
   map:       "Map",
+  places:    "Places",
   costs:     "Costs",
   todos:     "To-do",
   history:   "History",
@@ -1117,10 +1126,12 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
     [trip],
   );
   // Build the tab list dynamically so tabs the share hides don't even
-  // appear. Itinerary / Timeline / Map are always shown; Costs and
-  // To-do drop out for shares with the matching toggle off.
+  // appear. Itinerary / Timeline / Map / Places are always shown; Costs
+  // and To-do drop out for shares with the matching toggle off. Places
+  // mirrors Map's visibility — both visible to every viewer because the
+  // place list isn't sensitive (no cost / personal-task content).
   const visibleTabs = (
-    ["itinerary", "timeline", "map", "costs", "todos", "history"] as Tab[]
+    ["itinerary", "timeline", "map", "places", "costs", "todos", "history"] as Tab[]
   ).filter((t) => {
     if (t === "costs") return showCosts;
     if (t === "todos") return showTodos;
@@ -1447,6 +1458,16 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
         {activeTab === "timeline" && <TimelineView trip={trip} />}
 
         {activeTab === "map" && <MapView trip={trip} />}
+
+        {activeTab === "places" && (
+          <div className="rounded-xl border p-6">
+            <TripPlaces
+              tripId={trip.id}
+              places={trip.places ?? []}
+              readOnly={isReadOnly}
+            />
+          </div>
+        )}
 
         {activeTab === "costs" && showCosts && (
           <div className="rounded-xl border p-6">

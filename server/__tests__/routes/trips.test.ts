@@ -854,6 +854,138 @@ describe("Todo routes", () => {
   });
 });
 
+describe("Place routes", () => {
+  let tripId: string;
+
+  beforeEach(async () => {
+    const res = await request(app)
+      .post("/api/v1/trips")
+      .send({
+        title: "Place Trip",
+        startDate: "2026-09-01",
+        endDate: "2026-09-05",
+      });
+    tripId = res.body.id;
+  });
+
+  it("creates a place with name + address", async () => {
+    const res = await request(app)
+      .post(`/api/v1/trips/${tripId}/places`)
+      .send({
+        name: "Louvre Museum",
+        address: "Rue de Rivoli, 75001 Paris",
+        city: "Paris",
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.name).toBe("Louvre Museum");
+    expect(res.body.address).toBe("Rue de Rivoli, 75001 Paris");
+    expect(res.body.city).toBe("Paris");
+    expect(res.body.id).toBeDefined();
+    expect(res.body.sortOrder).toBe(0);
+    expect(res.body.createdAt).toBeDefined();
+  });
+
+  it("accepts a URL-only place", async () => {
+    const res = await request(app)
+      .post(`/api/v1/trips/${tripId}/places`)
+      .send({ url: "https://example.com/place" });
+    expect(res.status).toBe(201);
+    expect(res.body.url).toBe("https://example.com/place");
+  });
+
+  it("rejects an empty place (no name / address / url)", async () => {
+    const res = await request(app)
+      .post(`/api/v1/trips/${tripId}/places`)
+      .send({ city: "Paris" });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an invalid URL", async () => {
+    const res = await request(app)
+      .post(`/api/v1/trips/${tripId}/places`)
+      .send({ name: "x", url: "not-a-url" });
+    expect(res.status).toBe(400);
+  });
+
+  it("lists places sorted by sortOrder", async () => {
+    await request(app)
+      .post(`/api/v1/trips/${tripId}/places`)
+      .send({ name: "A" });
+    await request(app)
+      .post(`/api/v1/trips/${tripId}/places`)
+      .send({ name: "B" });
+
+    const res = await request(app).get(`/api/v1/trips/${tripId}/places`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+    expect(res.body[0].name).toBe("A");
+    expect(res.body[1].name).toBe("B");
+  });
+
+  it("updates a place's fields", async () => {
+    const create = await request(app)
+      .post(`/api/v1/trips/${tripId}/places`)
+      .send({ name: "Original" });
+    const update = await request(app)
+      .put(`/api/v1/trips/${tripId}/places/${create.body.id}`)
+      .send({ name: "Renamed", city: "Paris" });
+    expect(update.status).toBe(200);
+    expect(update.body.name).toBe("Renamed");
+    expect(update.body.city).toBe("Paris");
+  });
+
+  it("clears a field when given null", async () => {
+    const create = await request(app)
+      .post(`/api/v1/trips/${tripId}/places`)
+      .send({ name: "Keeper", city: "Paris", notes: "hello" });
+    const update = await request(app)
+      .put(`/api/v1/trips/${tripId}/places/${create.body.id}`)
+      .send({ notes: null });
+    expect(update.status).toBe(200);
+    expect(update.body.notes).toBeUndefined();
+  });
+
+  it("rejects an update that would clear the last identifying field", async () => {
+    const create = await request(app)
+      .post(`/api/v1/trips/${tripId}/places`)
+      .send({ name: "Only name" });
+    const update = await request(app)
+      .put(`/api/v1/trips/${tripId}/places/${create.body.id}`)
+      .send({ name: null });
+    expect(update.status).toBe(400);
+  });
+
+  it("deletes a place", async () => {
+    const create = await request(app)
+      .post(`/api/v1/trips/${tripId}/places`)
+      .send({ name: "Doomed" });
+    const del = await request(app).delete(
+      `/api/v1/trips/${tripId}/places/${create.body.id}`,
+    );
+    expect(del.status).toBe(204);
+    const list = await request(app).get(`/api/v1/trips/${tripId}/places`);
+    expect(list.body).toHaveLength(0);
+  });
+
+  it("records history entries for create / update / delete", async () => {
+    const create = await request(app)
+      .post(`/api/v1/trips/${tripId}/places`)
+      .send({ name: "History Place" });
+    await request(app)
+      .put(`/api/v1/trips/${tripId}/places/${create.body.id}`)
+      .send({ name: "History Place 2" });
+    await request(app).delete(
+      `/api/v1/trips/${tripId}/places/${create.body.id}`,
+    );
+
+    const tripRes = await request(app).get(`/api/v1/trips/${tripId}`);
+    const kinds = tripRes.body.history.map((h: { kind: string }) => h.kind);
+    expect(kinds).toEqual(
+      expect.arrayContaining(["place.create", "place.update", "place.delete"]),
+    );
+  });
+});
+
 describe("Share routes", () => {
   let tripId: string;
 

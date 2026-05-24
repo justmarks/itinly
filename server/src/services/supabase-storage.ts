@@ -23,6 +23,7 @@ import {
   CURRENT_TRIP_SCHEMA_VERSION,
   type EmailScanRun,
   type EmailScanSchedule,
+  type Place,
   type Trip,
   type TripDay,
   type TripShare,
@@ -40,6 +41,7 @@ import {
   trips as tripsTable,
   segments as segmentsTable,
   todos as todosTable,
+  places as placesTable,
   tripHistory as historyTable,
   shareRules as shareRulesTable,
   processedEmails as processedEmailsTable,
@@ -88,7 +90,7 @@ export class SupabaseStorage implements StorageProvider {
     if (tripRows.length === 0) return [];
     const ids = tripRows.map((t) => t.id);
 
-    const [segmentRows, todoRows, historyRows] = await Promise.all([
+    const [segmentRows, todoRows, placeRows, historyRows] = await Promise.all([
       this.db
         .select()
         .from(segmentsTable)
@@ -101,6 +103,11 @@ export class SupabaseStorage implements StorageProvider {
         .orderBy(asc(todosTable.sortOrder)),
       this.db
         .select()
+        .from(placesTable)
+        .where(inArray(placesTable.tripId, ids))
+        .orderBy(asc(placesTable.sortOrder)),
+      this.db
+        .select()
         .from(historyTable)
         .where(inArray(historyTable.tripId, ids))
         .orderBy(asc(historyTable.ts)),
@@ -108,12 +115,14 @@ export class SupabaseStorage implements StorageProvider {
 
     const segByTrip = groupBy(segmentRows, (s) => s.tripId);
     const todosByTrip = groupBy(todoRows, (t) => t.tripId);
+    const placesByTrip = groupBy(placeRows, (p) => p.tripId);
     const historyByTrip = groupBy(historyRows, (h) => h.tripId);
 
     return tripRows.map((row) =>
       assembleTrip(row, {
         segments: segByTrip.get(row.id) ?? [],
         todos: todosByTrip.get(row.id) ?? [],
+        places: placesByTrip.get(row.id) ?? [],
         history: historyByTrip.get(row.id) ?? [],
       }),
     );
@@ -129,7 +138,7 @@ export class SupabaseStorage implements StorageProvider {
 
     if (tripRows.length === 0) return null;
 
-    const [segmentRows, todoRows, historyRows] = await Promise.all([
+    const [segmentRows, todoRows, placeRows, historyRows] = await Promise.all([
       this.db
         .select()
         .from(segmentsTable)
@@ -142,6 +151,11 @@ export class SupabaseStorage implements StorageProvider {
         .orderBy(asc(todosTable.sortOrder)),
       this.db
         .select()
+        .from(placesTable)
+        .where(eq(placesTable.tripId, tripId))
+        .orderBy(asc(placesTable.sortOrder)),
+      this.db
+        .select()
         .from(historyTable)
         .where(eq(historyTable.tripId, tripId))
         .orderBy(asc(historyTable.ts)),
@@ -150,6 +164,7 @@ export class SupabaseStorage implements StorageProvider {
     return assembleTrip(tripRows[0], {
       segments: segmentRows,
       todos: todoRows,
+      places: placeRows,
       history: historyRows,
     });
   }
@@ -220,6 +235,18 @@ export class SupabaseStorage implements StorageProvider {
       if (trip.todos.length > 0) {
         await tx.insert(todosTable).values(
           trip.todos.map((t) => todoToRow(t, trip.id)),
+        );
+      }
+
+      await tx.delete(placesTable).where(eq(placesTable.tripId, trip.id));
+      // `places` is required on the current Trip type, but defensive `??`
+      // here protects against legacy callers that round-trip a Trip
+      // through `JSON.parse(JSON.stringify(...))` against a pre-v3 fixture
+      // (which the read path would also migrate before handing back).
+      const placesToInsert = trip.places ?? [];
+      if (placesToInsert.length > 0) {
+        await tx.insert(placesTable).values(
+          placesToInsert.map((p) => placeToRow(p, trip.id, this.userId)),
         );
       }
 
@@ -302,15 +329,18 @@ export class SupabaseStorage implements StorageProvider {
       rawParseResult: row.parsedResult ?? undefined,
       provider: (row.provider as "google" | "microsoft") ?? undefined,
       accountEmail: row.accountEmail || undefined,
+      parseError: row.parseError ?? undefined,
+      rawEmail:
+        (row.raw as ProcessedEmail["rawEmail"]) ?? undefined,
       createdAt: row.createdAt.toISOString(),
     }));
   }
 
   async saveProcessedEmails(emails: ProcessedEmail[]): Promise<void> {
-    // Replace-all matches the existing StorageProvider contract. The
-    // `raw` column stays NULL for phase 1 rows — phase 4 will start
-    // populating it once the connector layer surfaces full provider
-    // message bodies through the parsing pipeline.
+    // Replace-all matches the existing StorageProvider contract.
+    // `raw` (jsonb) + `parse_error` (text) carry the email snapshot +
+    // failure reason for parse failures — populated by the scan routes
+    // and surfaced via the `/emails/failures` debug endpoint.
     await this.db.transaction(async (tx) => {
       await tx
         .delete(processedEmailsTable)
@@ -340,8 +370,9 @@ export class SupabaseStorage implements StorageProvider {
           segmentId: e.segmentId ?? null,
           tripId: e.tripId ?? null,
           parseStatus: e.parseStatus,
+          parseError: e.parseError ?? null,
           parsedResult: (e.rawParseResult ?? null) as unknown,
-          raw: null,
+          raw: (e.rawEmail ?? null) as unknown,
           createdAt: new Date(e.createdAt),
         })),
       );
@@ -773,6 +804,7 @@ function runToRow(r: EmailScanRun): EmailScanRunInsert {
 type TripRow = typeof tripsTable.$inferSelect;
 type SegmentRow = typeof segmentsTable.$inferSelect;
 type TodoRow = typeof todosTable.$inferSelect;
+type PlaceRow = typeof placesTable.$inferSelect;
 type HistoryRow = typeof historyTable.$inferSelect;
 type ShareRuleRow = typeof shareRulesTable.$inferSelect;
 
@@ -781,6 +813,7 @@ function assembleTrip(
   children: {
     segments: SegmentRow[];
     todos: TodoRow[];
+    places: PlaceRow[];
     history: HistoryRow[];
   },
 ): Trip {
@@ -804,6 +837,7 @@ function assembleTrip(
     status: row.status as Trip["status"],
     days,
     todos: children.todos.map(todoFromRow),
+    places: children.places.map(placeFromRow),
     shares: ((row.shares as TripShare[] | null) ?? []) as TripShare[],
     history: children.history.map(historyFromRow),
     createdAt: row.createdAt.toISOString(),
@@ -917,6 +951,39 @@ function todoToRow(
     category: todo.category ?? null,
     details: todo.details ?? null,
     sortOrder: todo.sortOrder,
+  };
+}
+
+function placeFromRow(row: PlaceRow): Place {
+  return {
+    id: row.id,
+    name: row.name ?? undefined,
+    address: row.address ?? undefined,
+    url: row.url ?? undefined,
+    city: row.city ?? undefined,
+    notes: row.notes ?? undefined,
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function placeToRow(
+  place: Place,
+  tripId: string,
+  userId: string,
+): typeof placesTable.$inferInsert {
+  return {
+    id: place.id,
+    tripId,
+    userId,
+    name: place.name ?? null,
+    address: place.address ?? null,
+    url: place.url ?? null,
+    city: place.city ?? null,
+    notes: place.notes ?? null,
+    sortOrder: place.sortOrder,
+    createdAt: new Date(place.createdAt),
+    updatedAt: new Date(),
   };
 }
 

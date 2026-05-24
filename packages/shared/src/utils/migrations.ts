@@ -39,6 +39,17 @@ export function migrateTrip(loaded: unknown): Trip {
     working.schemaVersion = 2;
   }
 
+  // v2 → v3: introduce `places` (per-trip list of points-of-interest
+  // that aren't tied to a date or a todo). Older trips get an empty
+  // array; the storage layer normalises every read through this fn so
+  // routes / hooks can assume the array is present.
+  if (working.schemaVersion < 3) {
+    if (!Array.isArray(working.places)) {
+      working.places = [];
+    }
+    working.schemaVersion = 3;
+  }
+
   if (working.schemaVersion > CURRENT_TRIP_SCHEMA_VERSION) {
     // A trip saved by a newer build than this one is loading it. We don't
     // auto-downgrade; surface the mismatch so the caller knows.
