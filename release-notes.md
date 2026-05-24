@@ -1,4 +1,4 @@
-# itinly v1.5.0
+# itinly v1.3.0
 
 Save destinations you haven't scheduled yet — museums, viewpoints, restaurants — to a per-trip **Places to go** list that pins them onto the map without forcing a date and time. **Calendar sync now works on shared trips**, so every co-traveller can push the same itinerary to their own Google or Outlook calendar without clobbering anyone else's event ids. **Auto email-scan** picks up safety nets — a "Run now" button on each schedule, a Sentry alert when scheduled runs start failing, and an in-app banner that one-click reconnects a provider that revoked your token between runs. Plus a long list of mobile + desktop polish: the email-scan review card stops conflating the action chip with the checkbox, the trip header on shared trips no longer renders two `…` menus, and the user-menu "Account" entry now reads "Settings" to match what's actually in there.
 
