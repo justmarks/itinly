@@ -2350,6 +2350,13 @@ export class MockApiClient extends ApiClient {
     return Promise.resolve([]);
   }
 
+  override getEmailFailures(): ReturnType<ApiClient["getEmailFailures"]> {
+    // Demo mode never runs the parser, so there are no failures to
+    // serve. Returning an empty list keeps the "Copy debug" button
+    // from blowing up when someone clicks it on a demo trip.
+    return Promise.resolve({ failures: [] });
+  }
+
   override dismissEmail(_emailId: string): Promise<{ status: string }> {
     return Promise.resolve({ status: "dismissed" });
   }

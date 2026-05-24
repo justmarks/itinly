@@ -741,6 +741,34 @@ export class ApiClient {
     return this.request("/emails/processed");
   }
 
+  /**
+   * Returns the user's recent parse failures with the raw email body
+   * that was sent to the parser. Newest first. The body is gated on
+   * `parseStatus === "failed"` so successful parses don't bloat the
+   * payload. Drives the "Copy debug info" affordance in the scan
+   * dialog. Owner-only by construction (storage is scoped per request).
+   */
+  getEmailFailures(): Promise<{
+    failures: Array<{
+      emailId: string;
+      subject: string | null;
+      from: string | null;
+      receivedAt: string | null;
+      provider: "google" | "microsoft" | null;
+      accountEmail: string | null;
+      parseError: string | null;
+      rawEmail: {
+        subject?: string;
+        from?: string;
+        body?: string;
+        receivedAt?: string;
+      } | null;
+      recordedAt: string;
+    }>;
+  }> {
+    return this.request("/emails/failures");
+  }
+
   dismissEmail(emailId: string): Promise<{ status: string }> {
     return this.request(`/emails/dismiss/${emailId}`, {
       method: "POST",

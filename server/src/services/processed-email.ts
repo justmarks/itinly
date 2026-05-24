@@ -25,5 +25,27 @@ export interface ProcessedEmail {
    *  path). Lets observability + multi-mailbox features
    *  distinguish identical messages across accounts. */
   accountEmail?: string;
+  /**
+   * Short human-readable description of why a parse attempt failed.
+   * Set only when `parseStatus === "failed"`. Persisted to
+   * `processed_emails.parse_error` so it survives across scans and
+   * the failures-debug endpoint can surface it.
+   */
+  parseError?: string;
+  /**
+   * Snapshot of the email content captured at parse time so a parse
+   * failure can be reproduced and diagnosed offline. Set only when
+   * `parseStatus === "failed"` — keeping it gated on failure avoids
+   * inflating storage with body text we don't need for successful
+   * parses. Lives in `processed_emails.raw` jsonb.
+   */
+  rawEmail?: {
+    subject?: string;
+    from?: string;
+    /** Plain-text email body — what the parser was given. */
+    body?: string;
+    /** Provider-issued ISO timestamp the email was received. */
+    receivedAt?: string;
+  };
   createdAt: string;
 }

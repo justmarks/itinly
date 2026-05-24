@@ -329,15 +329,18 @@ export class SupabaseStorage implements StorageProvider {
       rawParseResult: row.parsedResult ?? undefined,
       provider: (row.provider as "google" | "microsoft") ?? undefined,
       accountEmail: row.accountEmail || undefined,
+      parseError: row.parseError ?? undefined,
+      rawEmail:
+        (row.raw as ProcessedEmail["rawEmail"]) ?? undefined,
       createdAt: row.createdAt.toISOString(),
     }));
   }
 
   async saveProcessedEmails(emails: ProcessedEmail[]): Promise<void> {
-    // Replace-all matches the existing StorageProvider contract. The
-    // `raw` column stays NULL for phase 1 rows — phase 4 will start
-    // populating it once the connector layer surfaces full provider
-    // message bodies through the parsing pipeline.
+    // Replace-all matches the existing StorageProvider contract.
+    // `raw` (jsonb) + `parse_error` (text) carry the email snapshot +
+    // failure reason for parse failures — populated by the scan routes
+    // and surfaced via the `/emails/failures` debug endpoint.
     await this.db.transaction(async (tx) => {
       await tx
         .delete(processedEmailsTable)
@@ -367,8 +370,9 @@ export class SupabaseStorage implements StorageProvider {
           segmentId: e.segmentId ?? null,
           tripId: e.tripId ?? null,
           parseStatus: e.parseStatus,
+          parseError: e.parseError ?? null,
           parsedResult: (e.rawParseResult ?? null) as unknown,
-          raw: null,
+          raw: (e.rawEmail ?? null) as unknown,
           createdAt: new Date(e.createdAt),
         })),
       );
