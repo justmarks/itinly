@@ -153,7 +153,7 @@ function EditableTitle({ tripId, title }: { tripId: string; title: string }) {
   if (editing) {
     return (
       <form
-        className="flex items-center gap-2"
+        className="flex min-w-0 flex-1 items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           save();
@@ -162,7 +162,7 @@ function EditableTitle({ tripId, title }: { tripId: string; title: string }) {
         <Input
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="h-9 text-2xl font-bold"
+          className="h-9 w-full min-w-0 text-2xl font-bold"
           autoFocus
           onKeyDown={(e) => {
             if (e.key === "Escape") cancelEdit();
@@ -173,7 +173,7 @@ function EditableTitle({ tripId, title }: { tripId: string; title: string }) {
           variant="ghost"
           size="icon"
           aria-label="Save trip name"
-          className="h-8 w-8"
+          className="h-8 w-8 shrink-0"
           disabled={!value.trim() || updateTrip.isPending}
         >
           <Check className="h-4 w-4" />
@@ -183,7 +183,7 @@ function EditableTitle({ tripId, title }: { tripId: string; title: string }) {
           variant="ghost"
           size="icon"
           aria-label="Cancel rename"
-          className="h-8 w-8"
+          className="h-8 w-8 shrink-0"
           onClick={cancelEdit}
         >
           <X className="h-4 w-4" />
@@ -195,10 +195,10 @@ function EditableTitle({ tripId, title }: { tripId: string; title: string }) {
   return (
     <button
       onClick={() => setEditing(true)}
-      className="group/title flex items-center gap-2 text-left"
+      className="group/title flex min-w-0 items-center gap-2 text-left"
       title="Rename trip"
     >
-      <h1 className="text-2xl font-bold break-words [overflow-wrap:anywhere]">{title}</h1>
+      <h1 className="min-w-0 text-2xl font-bold break-words [overflow-wrap:anywhere]">{title}</h1>
       <Pencil className="h-4 w-4 shrink-0 text-muted-foreground opacity-100 transition-opacity can-hover:opacity-0 can-hover:group-hover/title:opacity-100" />
     </button>
   );
@@ -419,6 +419,7 @@ function TripActionsMenu({
   trip,
   onImportEmail,
   canDelete,
+  ownShareId,
 }: {
   tripId: string;
   tripTitle: string;
@@ -426,13 +427,38 @@ function TripActionsMenu({
   onImportEmail: () => void;
   /** Whether to surface the destructive "Delete trip" entry. Owner-only. */
   canDelete: boolean;
+  /**
+   * Recipient's own share row id. When set (i.e. the current user is a
+   * non-owner editor), a "Leave trip" entry replaces the owner-only
+   * "Delete trip" at the bottom of the menu. Folded into this menu so
+   * editor-shares don't see two adjacent `…` buttons in the header.
+   */
+  ownShareId?: string;
 }) {
   const client = useApiClient();
   const router = useRouter();
   const confirm = useConfirm();
   const deleteTrip = useDeleteTrip();
+  const deleteShare = useDeleteShare(tripId);
   const homeHref = useDemoHref("/");
   const [exporting, setExporting] = useState(false);
+
+  const handleLeave = async () => {
+    const ok = await confirm({
+      title: `Leave "${tripTitle}"?`,
+      description:
+        "You'll lose access to this trip — the owner will be notified.",
+      confirmText: "Leave",
+      destructive: true,
+    });
+    if (!ok || !ownShareId) return;
+    deleteShare.mutate(ownShareId, {
+      onSuccess: () => {
+        router.push(homeHref);
+      },
+      onError: toastMutationError("leave trip"),
+    });
+  };
 
   const handleDelete = async () => {
     const ok = await confirm({
@@ -626,6 +652,19 @@ function TripActionsMenu({
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete trip
+              </DropdownMenuItem>
+            </>
+          )}
+          {!canDelete && ownShareId && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={handleLeave}
+                disabled={deleteShare.isPending}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Leave trip
               </DropdownMenuItem>
             </>
           )}
@@ -1257,15 +1296,24 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
                 trip={trip}
                 onImportEmail={() => setHtmlImportOpen(true)}
                 canDelete={permission.isOwner}
+                ownShareId={!isOwner ? ownShareId : undefined}
               />
             )}
-            {!permission.isLoading && !isOwner && ownShareId && (
-              <LeaveTripMenu
-                tripId={trip.id}
-                tripTitle={trip.title}
-                ownShareId={ownShareId}
-              />
-            )}
+            {/* Read-only recipients have no TripActionsMenu, so they
+                still need a standalone "Leave trip" affordance. Editor
+                recipients see Leave folded into TripActionsMenu above
+                — rendering both here would surface two adjacent `…`
+                buttons (a bug fixed in 2026-05). */}
+            {!permission.isLoading &&
+              !permission.canEdit &&
+              !isOwner &&
+              ownShareId && (
+                <LeaveTripMenu
+                  tripId={trip.id}
+                  tripTitle={trip.title}
+                  ownShareId={ownShareId}
+                />
+              )}
             <UserMenu />
           </div>
         </div>

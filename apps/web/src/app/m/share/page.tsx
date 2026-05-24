@@ -17,7 +17,6 @@ import {
   fmtTripRange,
   STATUS_LABEL,
   STATUS_TOKEN,
-  type ApplyAction,
   type ReviewItem,
 } from "@/lib/email-scan-review";
 import { RequireAuth } from "@/components/require-auth";
@@ -184,27 +183,26 @@ function MobileSharePageInner(): React.JSX.Element {
 
   const toggleSelected = (idx: number) => {
     setItems((prev) =>
-      prev.map((it, i) =>
-        i === idx ? { ...it, selected: !it.selected } : it,
-      ),
+      prev.map((it, i) => {
+        if (i !== idx) return it;
+        const nextSelected = !it.selected;
+        // Matches the email-scan sheet: with no cycling chip, the
+        // checkbox is the only opt-in for a duplicate (default
+        // action=skip). Promote skip → a real action so the apply
+        // doesn't filter the item out.
+        let nextAction = it.action;
+        if (nextSelected && it.action === "skip") {
+          const matchStatus = it.segment.match?.status ?? "new";
+          nextAction = matchStatus === "new" ? "create" : "merge";
+        }
+        return { ...it, selected: nextSelected, action: nextAction };
+      }),
     );
   };
 
   const setTripId = (idx: number, next: string) => {
     setItems((prev) =>
       prev.map((it, i) => (i === idx ? { ...it, tripId: next } : it)),
-    );
-  };
-
-  const cycleAction = (idx: number) => {
-    const order: ApplyAction[] = ["create", "merge", "replace", "skip"];
-    setItems((prev) =>
-      prev.map((it, i) => {
-        if (i !== idx) return it;
-        const cur = order.indexOf(it.action);
-        const next = order[(cur + 1) % order.length];
-        return { ...it, action: next, selected: next !== "skip" };
-      }),
     );
   };
 
@@ -447,7 +445,6 @@ function MobileSharePageInner(): React.JSX.Element {
                   trips={tripsForPicker}
                   proposals={proposals}
                   onToggleSelected={() => toggleSelected(idx)}
-                  onCycleAction={() => cycleAction(idx)}
                   onChangeTrip={(next) => setTripId(idx, next)}
                 />
               ))}
@@ -476,7 +473,7 @@ function MobileSharePageInner(): React.JSX.Element {
               className="inline-flex h-11 flex-[2] items-center justify-center gap-1.5 rounded-full bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
             >
               {isApplying && <Loader2 className="h-4 w-4 animate-spin" />}
-              Add {applyableCount > 0 ? applyableCount : ""}
+              Add {applyableCount} segment{applyableCount === 1 ? "" : "s"}
             </button>
           ) : (
             <button
@@ -500,27 +497,18 @@ function ShareReviewCard({
   trips,
   proposals,
   onToggleSelected,
-  onCycleAction,
   onChangeTrip,
 }: {
   item: ReviewItem;
   trips: { id: string; title: string; startDate: string; endDate: string }[];
   proposals: NewTripProposal[];
   onToggleSelected: () => void;
-  onCycleAction: () => void;
   onChangeTrip: (next: string) => void;
 }): React.JSX.Element {
   const cfg = SEGMENT_CONFIG[item.segment.type] ?? SEGMENT_CONFIG.activity;
   const Icon = cfg.icon;
   const status = item.segment.match?.status ?? "new";
   const startTime = fmt12h(item.segment.startTime);
-
-  const actionLabel: Record<ApplyAction, string> = {
-    create: "Add",
-    merge: "Merge",
-    replace: "Replace",
-    skip: "Skip",
-  };
 
   return (
     <li
@@ -559,11 +547,13 @@ function ShareReviewCard({
       </div>
 
       <div className="flex items-center gap-2 text-xs">
-        <span className="text-muted-foreground">Trip</span>
+        <span className="shrink-0 text-muted-foreground">Trip</span>
+        {/* `min-w-0` so the flex-1 select shrinks below its longest
+            <option>'s intrinsic width. Matches mobile-email-scan-sheet. */}
         <select
           value={item.tripId}
           onChange={(e) => onChangeTrip(e.target.value)}
-          className="flex-1 rounded-md border bg-background px-2 py-1 text-xs"
+          className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs"
         >
           {trips.length === 0 && proposals.length === 0 && (
             <option value="">(no trips)</option>
@@ -589,21 +579,12 @@ function ShareReviewCard({
         </select>
       </div>
 
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onCycleAction}
-          aria-label={`Action: ${actionLabel[item.action]}. Tap to cycle.`}
-          className="inline-flex h-8 items-center gap-1 rounded-full border bg-background px-2.5 text-[11px] font-medium"
-        >
-          {actionLabel[item.action]}
-        </button>
-        <div className="flex-1" />
+      <div className="flex items-center justify-end">
         <button
           type="button"
           onClick={onToggleSelected}
           aria-pressed={item.selected}
-          aria-label={item.selected ? "Deselect" : "Select"}
+          aria-label={item.selected ? "Don't add this segment" : "Add this segment"}
           className={cn(
             "flex h-8 w-8 items-center justify-center rounded-full border",
             item.selected
