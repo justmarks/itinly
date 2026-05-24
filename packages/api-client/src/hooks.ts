@@ -654,8 +654,15 @@ export function useCreatePlace(tripId: string) {
         queryKeys.places(tripId),
       );
       const prevTrip = queryClient.getQueryData<Trip>(queryKeys.trip(tripId));
+      // `?.places?.length` — both hops chained, because a trip in the
+      // cache loaded before `places` shipped (or a legacy trip that
+      // never went through migrateTrip) can have an undefined `places`
+      // field. A bare `?.places.length` would throw TypeError and the
+      // mutation's onError would surface "Cannot read properties of
+      // undefined (reading 'length')" via the toast, never reaching
+      // the server.
       const baseLength =
-        prevPlaces?.length ?? prevTrip?.places.length ?? 0;
+        prevPlaces?.length ?? prevTrip?.places?.length ?? 0;
       const optimistic: Place = {
         id: `temp_${generateId()}`,
         sortOrder: baseLength,

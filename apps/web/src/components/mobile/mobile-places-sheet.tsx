@@ -305,7 +305,7 @@ function PlaceForm({
         className={inputClass}
       />
       <input
-        placeholder="Address (used for the map pin)"
+        placeholder="Address (optional — used for the map pin)"
         value={address}
         onChange={(e) => setAddress(e.target.value)}
         maxLength={500}
