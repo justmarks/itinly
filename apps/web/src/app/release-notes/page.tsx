@@ -31,6 +31,380 @@ export default function ReleaseNotesPage(): React.JSX.Element {
           <section className="space-y-6">
             <header className="space-y-1">
               <h2 className="text-2xl font-semibold tracking-tight">
+                v1.5.0 — Places to go, calendar sync on shared trips, scheduled-scan safety nets
+              </h2>
+              <p className="text-sm text-muted-foreground">May 24, 2026</p>
+            </header>
+
+            <p>
+              Save destinations you haven&apos;t scheduled yet — museums,
+              viewpoints, restaurants — to a per-trip{" "}
+              <strong>Places to go</strong> list that pins them onto the map
+              without forcing a date and time.{" "}
+              <strong>Calendar sync now works on shared trips</strong>, so
+              every co-traveller can push the same itinerary to their own
+              Google or Outlook calendar without clobbering anyone else&apos;s
+              event ids. <strong>Auto email-scan</strong> picks up safety nets
+              — a &ldquo;Run now&rdquo; button on each schedule, a Sentry
+              alert when scheduled runs start failing, and an in-app banner
+              that one-click reconnects a provider that revoked your token
+              between runs. Plus a long list of mobile + desktop polish.
+            </p>
+
+            <Subsection title="Places to go">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Per-trip POI list</strong> that isn&apos;t tied to a
+                  date or time — distinct from todos (action) and segments
+                  (date + time bound). Each place takes a{" "}
+                  <strong>name</strong>, <strong>address</strong>, and / or{" "}
+                  <strong>URL</strong> (at least one required), with optional
+                  city and notes.
+                </li>
+                <li>
+                  <strong>Renders as an orange map pin</strong> on both the
+                  desktop Map view and the mobile full-screen map, alongside
+                  the existing four itinerary pin categories (transport /
+                  lodging / activity / dining). Uses the{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    --brand
+                  </code>{" "}
+                  vermilion token so the colour stays in sync with the rest of
+                  the palette.
+                </li>
+                <li>
+                  <strong>Dedicated Places tab</strong> on the trip detail
+                  page on desktop, mirrored as a{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    /m/trip/places
+                  </code>{" "}
+                  route on mobile, with city-grouped section headers so a long
+                  list stays scannable.
+                </li>
+                <li>
+                  <strong>
+                    Backed by a new{" "}
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                      places
+                    </code>{" "}
+                    Postgres table
+                  </strong>{" "}
+                  with cascade-delete from{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    trips
+                  </code>{" "}
+                  and an owner-only RLS policy. Trip schema bumps 2 → 3 with
+                  a migration step that backfills{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    places: []
+                  </code>{" "}
+                  on legacy trips.
+                </li>
+                <li>
+                  <strong>Future &ldquo;schedule this&rdquo; action</strong>{" "}
+                  can promote a place into a real segment with a date and
+                  time — the data model is ready; the affordance lands in a
+                  future release.
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Calendar sync on shared trips">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Recipients can sync now.</strong> A shared-edit
+                  trip&apos;s calendar-sync button used to be hidden behind{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    useTripPermission().isOwner
+                  </code>
+                  . The gate is now{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    canEdit
+                  </code>
+                  , so anyone with edit access can push to their own Google
+                  or Outlook calendar independently.
+                </li>
+                <li>
+                  <strong>Per-(trip, user) sync state.</strong> New{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    trip_user_calendar_syncs
+                  </code>{" "}
+                  table holds{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    (tripId, userId, calendarId, segmentEventMap)
+                  </code>{" "}
+                  per user. Two users syncing the same trip can&apos;t clobber
+                  each other&apos;s event ids — each user&apos;s mapping lives
+                  on their own row.
+                </li>
+                <li>
+                  <strong>Migration backfills the owner&apos;s state</strong>{" "}
+                  from{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    trips.calendar_id
+                  </code>{" "}
+                  +{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    segments.calendar_event_id
+                  </code>{" "}
+                  into the new table via{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    jsonb_object_agg
+                  </code>
+                  . Existing sync setups carry over without a re-sync.
+                </li>
+                <li>
+                  <strong>The menu label flips to{" "}
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                      Calendar synced (N)
+                    </code>
+                  </strong>{" "}
+                  once the <em>current user</em> has any segments synced — not
+                  the owner&apos;s count.
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Auto email-scan robustness">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Run now</strong> on any schedule from{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    /settings/account
+                  </code>{" "}
+                  — fires the same executor the cron tick uses, so you can
+                  verify a configuration works without waiting for the next
+                  anchored fire-time.
+                </li>
+                <li>
+                  <strong>Sentry alert when scheduled runs start failing</strong>{" "}
+                  — every failed run is reported with{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    email.outcome=failed
+                  </code>{" "}
+                  + the schedule id + the provider so an operator gets paged
+                  before the user notices nothing&apos;s happening.
+                </li>
+                <li>
+                  <strong>Reconnect banner.</strong> When a scheduled-scan
+                  provider revokes its refresh token (Google reissues a
+                  session, Microsoft mandatory MFA bounces it, etc.), the
+                  in-app{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    ConnectionRevokedBanner
+                  </code>{" "}
+                  surfaces a one-click reconnect link instead of the schedule
+                  silently failing under the hood. Pauses the schedule until
+                  the user reconnects.
+                </li>
+                <li>
+                  <strong>
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                      DEBUG_EMAIL_SCHEDULE=1
+                    </code>{" "}
+                    Railway debug knob
+                  </strong>{" "}
+                  documents what each tick does (fan-out → per-schedule start
+                  / finish → cadence advance → next-run timestamp) so
+                  steady-state cron operation is debuggable. Failures still go
+                  to Sentry + <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">console.error</code> regardless.
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Mobile + desktop polish">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Email-scan review card cleaned up.</strong> The
+                  cycling action chip is gone — it was redundant with the
+                  status pill (New / Enrich / Conflict / Duplicate) and
+                  confusing alongside the checkbox. Checkbox is now the sole
+                  add / skip control; the footer button matches desktop&apos;s
+                  &ldquo;Add N segments&rdquo; wording. Same treatment on the{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    /m/share
+                  </code>{" "}
+                  PWA share-target review card. Toggling a Duplicate&apos;s
+                  checkbox promotes the action so the apply call doesn&apos;t
+                  silently drop it.
+                </li>
+                <li>
+                  <strong>
+                    Trip header stops rendering two{" "}
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                      …
+                    </code>{" "}
+                    menus
+                  </strong>{" "}
+                  on shared editor trips. &ldquo;Leave trip&rdquo; folded into
+                  the main{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    TripActionsMenu
+                  </code>{" "}
+                  for non-owner editors; the standalone{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    LeaveTripMenu
+                  </code>{" "}
+                  is reserved for read-only viewers.
+                </li>
+                <li>
+                  <strong>
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                      Account
+                    </code>{" "}
+                    →{" "}
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                      Settings
+                    </code>
+                  </strong>{" "}
+                  on the user menu (desktop + mobile) and the destination page
+                  H1. Better reflects the catch-all settings surface (theme,
+                  notifications, connections, delete account, scheduled scans,
+                  …).
+                </li>
+                <li>
+                  <strong>
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                      EditableTitle
+                    </code>{" "}
+                    + trip-picker{" "}
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                      &lt;select&gt;
+                    </code>{" "}
+                    overflow fixed
+                  </strong>{" "}
+                  on narrow viewports — both lacked{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    min-w-0
+                  </code>
+                  , so the edit-mode input box and the trip-picker dropdown
+                  extended past the right edge on 320 – 375px screens.
+                </li>
+                <li>
+                  <strong>Calendar-sync info dialog</strong> no longer flashes
+                  a pre-loaded description from a stale fetch before the
+                  current trip&apos;s state lands.
+                </li>
+                <li>
+                  <strong>&ldquo;Tap to confirm&rdquo; review sheet on mobile</strong>{" "}
+                  updates immediately when a segment is confirmed instead of
+                  waiting for the next React Query refetch.
+                </li>
+                <li>
+                  <strong>Page-shell padding standardized</strong> across home
+                  / trip / account on the web — the previous mix of{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    p-4 sm:p-8
+                  </code>{" "}
+                  and ad-hoc values caused inconsistent left-margins between
+                  adjacent surfaces.
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Sign-in + trust">
+              <p className="text-sm text-muted-foreground">
+                Two improvements that already landed direct-to-main in v1.3.0
+                + v1.4.0, but worth surfacing here:
+              </p>
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Privacy + Terms surfaced in-app</strong> with a
+                  Google Limited Use disclosure on the privacy page (sections
+                  renumbered to match the{" "}
+                  <a
+                    href="https://developers.google.com/terms/api-services-user-data-policy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-4 hover:opacity-80"
+                  >
+                    Google API Services User Data Policy
+                  </a>
+                  ). No ads, no model training, no human review without
+                  consent; narrow transfer to Anthropic + Supabase.
+                </li>
+                <li>
+                  <strong>OAuth sign-in buttons</strong> repainted to match
+                  Google + Microsoft&apos;s published branding specs — full-
+                  colour Google &ldquo;G,&rdquo; approved container colours,
+                  Microsoft logo on a white-on-cyan layout that matches the
+                  identity-platform reference.
+                </li>
+                <li>
+                  <strong>Recovery from broken Supabase sessions.</strong>{" "}
+                  Stale refresh-token exchanges that previously left the user
+                  stuck in a &ldquo;signed in but every request 401s&rdquo;
+                  loop now surface the exchange error explicitly and route
+                  the user back to sign-in.
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Under the hood">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Drizzle migration 0007</strong> (
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    places.sql
+                  </code>
+                  ) adds the per-user places table with RLS following the
+                  established pattern; migration 0008 (
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    per_user_calendar_sync.sql
+                  </code>
+                  ) adds the per-(trip, user) calendar-sync table with
+                  backfill from the legacy single-user shape.
+                </li>
+                <li>
+                  <strong>
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                      Trip.schemaVersion
+                    </code>
+                  </strong>{" "}
+                  bumps from 2 → 3 to gate the places backfill;{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    migrateTrip
+                  </code>{" "}
+                  handles both v1 → v2 history backfill and v2 → v3 places
+                  initialisation.
+                </li>
+                <li>
+                  <strong>
+                    CSP{" "}
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                      connect-src
+                    </code>{" "}
+                    widened
+                  </strong>{" "}
+                  to cover Sentry&apos;s regional ingest hosts (
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    *.sentry.io
+                  </code>
+                  ), unblocking client-side error reporting after Sentry moved
+                  customers off the global endpoint.
+                </li>
+                <li>
+                  <strong>Tests grew from 967 → 1052</strong> across 66 test
+                  suites — new coverage for the places CRUD + RLS path, the
+                  per-user calendar-sync routes + migration, the
+                  scheduled-scan Run-now + reconnect banner flows, and the
+                  mobile review-card promote-action behaviour.
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Thanks">
+              <p>
+                Two big features (Places + per-user calendar sync), a fistful
+                of scheduled-scan safety nets, and a long-overdue mobile
+                review-card rewrite. Onward to 1.5.x.
+              </p>
+            </Subsection>
+          </section>
+
+          <section className="space-y-6">
+            <header className="space-y-1">
+              <h2 className="text-2xl font-semibold tracking-tight">
                 v1.2.0 — Scheduled scans, share target, cruises on the timeline
               </h2>
               <p className="text-sm text-muted-foreground">May 16, 2026</p>

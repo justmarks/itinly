@@ -1,3 +1,62 @@
+# itinly v1.5.0
+
+Save destinations you haven't scheduled yet — museums, viewpoints, restaurants — to a per-trip **Places to go** list that pins them onto the map without forcing a date and time. **Calendar sync now works on shared trips**, so every co-traveller can push the same itinerary to their own Google or Outlook calendar without clobbering anyone else's event ids. **Auto email-scan** picks up safety nets — a "Run now" button on each schedule, a Sentry alert when scheduled runs start failing, and an in-app banner that one-click reconnects a provider that revoked your token between runs. Plus a long list of mobile + desktop polish: the email-scan review card stops conflating the action chip with the checkbox, the trip header on shared trips no longer renders two `…` menus, and the user-menu "Account" entry now reads "Settings" to match what's actually in there.
+
+## Places to go
+
+- **Per-trip POI list** that isn't tied to a date or time — distinct from todos (action) and segments (date + time bound). Each place takes a **name**, **address**, and/or **URL** (at least one required), with optional **city** and **notes**.
+- **Renders as an orange map pin** on both the desktop Map view and the mobile full-screen map, alongside the existing four itinerary pin categories (transport / lodging / activity / dining). Uses the `--brand` vermilion token so the colour stays in sync with the rest of the palette.
+- **Dedicated Places tab** on the trip detail page on desktop, mirrored as a `/m/trip/places` route on mobile, with city-grouped section headers so a long list stays scannable.
+- **Backed by a new `places` Postgres table** (`server/drizzle/0007_places.sql`) with cascade-delete from `trips` and an owner-only RLS policy following the canonical `0004_email_scan_rls.sql` pattern. `Trip.schemaVersion` bumps 2 → 3 with a `migrateTrip` step that backfills `places: []` on legacy trips.
+- **Future "schedule this" action** can promote a place into a real segment with a date and time — the data model is ready; the affordance lands in a future release.
+
+## Calendar sync on shared trips
+
+- **Recipients can sync now.** A shared-edit trip's calendar-sync button used to be hidden behind `useTripPermission().isOwner`. The gate is now `canEdit`, so anyone with edit access (owner + any edit-share recipient) can push to their own Google or Outlook calendar independently.
+- **Per-(trip, user) sync state.** New `trip_user_calendar_syncs` table holds `(tripId, userId, calendarId, segmentEventMap)` per user. Two users syncing the same trip can't clobber each other's event ids — each user's mapping lives on their own row.
+- **Migration backfills the owner's existing state** from `trips.calendar_id` + `segments.calendar_event_id` into the new table via `jsonb_object_agg`, with `ON CONFLICT (trip_id, user_id) DO NOTHING` so it's idempotent. Existing sync setups carry over without a re-sync.
+- **All calendar-sync routes** read/write keyed by `req.userId` instead of mutating the trip row, and the menu label on every surface (desktop trip-actions, mobile calendar sheet) flips to "Calendar synced (N)" once the **current user** has any segments synced — not the owner's count.
+
+## Auto email-scan robustness
+
+- **Run now** on any schedule from `/settings/account` — fires the same executor the cron tick uses, so you can verify a configuration works without waiting for the next anchored fire-time.
+- **Sentry alert when scheduled runs start failing** — every failed run is reported with `email.outcome=failed` + the schedule id + the provider so an operator gets paged before the user notices nothing's happening.
+- **Reconnect banner.** When a scheduled-scan provider revokes its refresh token (Google reissues a session, Microsoft mandatory MFA bounces it, etc.), the in-app `ConnectionRevokedBanner` surfaces a one-click reconnect link instead of the schedule silently failing under the hood. Pauses the schedule until the user reconnects.
+- **`DEBUG_EMAIL_SCHEDULE=1` Railway debug knob** documents what each tick does (fan-out → per-schedule start/finish → cadence advance → next-run timestamp) so steady-state cron operation is debuggable without spelunking through application code. Failures still go to Sentry + `console.error` regardless.
+
+## Mobile + desktop polish
+
+- **Email-scan review card cleaned up.** The action chip (cycling Add / Merge / Replace / Skip) is gone — it was redundant with the status pill (New / Enrich / Conflict / Duplicate) on the top-right and confusing alongside the checkbox. Checkbox is now the sole add/skip control; the footer button matches desktop's "Add N segments" wording. Same treatment on the `/m/share` PWA share-target review card. Toggling a Duplicate's checkbox promotes the action so the apply call doesn't silently drop it.
+- **Trip header stops rendering two `…` menus** on shared editor trips. "Leave trip" folded into the main `TripActionsMenu` for non-owner editors; the standalone `LeaveTripMenu` is now reserved for read-only viewers who have nowhere else to put the affordance.
+- **`Account` → `Settings`** on the user menu (desktop + mobile) and the destination page H1. Better reflects the catch-all settings surface (theme, notifications, connections, delete account, scheduled scans, …).
+- **`EditableTitle` + trip-picker `<select>` overflow** fixed on narrow viewports — both lacked `min-w-0`, so the edit-mode input box and the trip-picker dropdown extended past the right edge on 320–375px screens.
+- **Calendar-sync info dialog** no longer flashes a pre-loaded description from a stale fetch before the current trip's state lands.
+- **"Tap to confirm" review sheet on mobile** updates immediately when a segment is confirmed instead of waiting for the next React Query refetch — matches the optimistic-mutation conventions used everywhere else in the app.
+- **Page-shell padding standardized** across home / trip / account on the web — the previous mix of `p-4 sm:p-8` and ad-hoc values caused inconsistent left-margins between adjacent surfaces.
+
+## Sign-in + trust
+
+Two improvements that already landed in v1.3.0 + v1.4.0 direct-to-main, but worth surfacing here:
+
+- **Privacy + Terms surfaced in-app** with a Google Limited Use disclosure on the privacy page (sections renumbered to match the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy)). No ads, no model training, no human review without consent; narrow transfer to Anthropic + Supabase. Closes the gaps a Google OAuth verification reviewer would flag.
+- **OAuth sign-in buttons** repainted to match Google + Microsoft's published branding specs — full-colour Google "G," approved container colours, Microsoft logo on a white-on-cyan layout that matches the identity-platform reference. Required for OAuth verification on both providers.
+- **Recovery from broken Supabase sessions.** Stale `refresh_token` exchanges that previously left the user stuck in a "signed in but every request 401s" loop now surface the exchange error explicitly and route the user back to sign-in.
+
+## Under the hood
+
+- **Drizzle migration 0007** (`places.sql`) adds the per-user places table with RLS following the established pattern.
+- **Drizzle migration 0008** (`per_user_calendar_sync.sql`) adds the per-(trip, user) calendar sync table with backfill from the legacy single-user shape.
+- **`Trip.schemaVersion`** bumps from 2 → 3 to gate the `places` backfill; `migrateTrip` handles both v1 → v2 history backfill and v2 → v3 places initialisation.
+- **CSP `connect-src` widened** to cover Sentry's regional ingest hosts (`*.sentry.io`), unblocking client-side error reporting after Sentry moved customers off the global endpoint.
+- **Server log noise reduction** — the misleading "shared route registry miss" log no longer fires for the (very common) anonymous-link case it was meant to flag.
+- **Tests grew from 967 → 1052** across 66 test suites — new coverage for the places CRUD + RLS path, the per-user calendar-sync routes + migration, the scheduled-scan Run-now + reconnect banner flows, and the mobile review-card promote-action behaviour.
+
+## Thanks
+
+Two big features (Places + per-user calendar sync), a fistful of scheduled-scan safety nets, and a long-overdue mobile review-card rewrite. Onward to 1.5.x.
+
+---
+
 # itinly v1.2.0
 
 Schedule a scan once and let itinly check your inbox on its own. Send a confirmation straight from any iOS or Android share sheet without going through Gmail at all. Cruises and car rentals get their own multi-day bands on the timeline. The segment add/edit form trims down to its essentials, and a long list of accessibility, parity, and parsing fixes round out the release.
