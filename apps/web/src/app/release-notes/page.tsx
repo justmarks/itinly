@@ -31,7 +31,7 @@ export default function ReleaseNotesPage(): React.JSX.Element {
           <section className="space-y-6">
             <header className="space-y-1">
               <h2 className="text-2xl font-semibold tracking-tight">
-                v1.5.0 — Places to go, calendar sync on shared trips, scheduled-scan safety nets
+                v1.3.0 — Places to go, calendar sync on shared trips, scheduled-scan safety nets
               </h2>
               <p className="text-sm text-muted-foreground">May 24, 2026</p>
             </header>
