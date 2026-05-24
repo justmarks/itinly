@@ -22,61 +22,47 @@ function AccountSettingsBody(): React.JSX.Element | null {
   const { user } = useAuth();
   if (!user) return null;
   return (
-    <main className="mx-auto max-w-2xl px-6 py-8">
-      <Link
-        href="/"
-        className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="h-4 w-4" />
-        Back to trips
-      </Link>
+    <main className="min-h-screen p-4 sm:p-8">
+      <div className="mx-auto max-w-2xl">
+        <Link
+          href="/"
+          className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Back to trips
+        </Link>
 
-      <h1 className="mb-6 text-2xl font-semibold">Account</h1>
+        <h1 className="mb-6 text-2xl font-semibold">Settings</h1>
 
-      <section className="mb-8 flex items-center gap-4 rounded-md border border-border bg-card p-4">
-        <UserAvatar
-          picture={user.picture}
-          name={user.name}
-          email={user.email}
-          size="md"
-        />
-        <div className="min-w-0">
-          <div className="truncate font-medium">{user.name}</div>
-          <div className="truncate text-sm text-muted-foreground">
-            {user.email}
+        <section className="mb-8 flex items-center gap-4 rounded-md border border-border bg-card p-4">
+          <UserAvatar
+            picture={user.picture}
+            name={user.name}
+            email={user.email}
+            size="md"
+          />
+          <div className="min-w-0">
+            <div className="truncate font-medium">{user.name}</div>
+            <div className="truncate text-sm text-muted-foreground">
+              {user.email}
+            </div>
           </div>
+        </section>
+
+        <ConnectedProvidersPanel />
+
+        <div className="mt-10 border-t border-border pt-6">
+          <ConnectedServicesPanel />
         </div>
-      </section>
 
-      <ConnectedProvidersPanel />
+        <div className="mt-10 border-t border-border pt-6">
+          <EmailScanSchedulesPanel />
+        </div>
 
-      <div className="mt-10 border-t border-border pt-6">
-        <ConnectedServicesPanel />
+        <div className="mt-10 border-t border-border pt-6">
+          <DeleteAccountSection />
+        </div>
       </div>
-
-      <div className="mt-10 border-t border-border pt-6">
-        <EmailScanSchedulesPanel />
-      </div>
-
-      <div className="mt-10 border-t border-border pt-6">
-        <DeleteAccountSection />
-      </div>
-
-      <footer className="mt-10 flex items-center justify-center gap-4 border-t border-border pt-6 text-sm text-muted-foreground">
-        <Link
-          href="/privacy"
-          className="underline-offset-4 hover:text-foreground hover:underline"
-        >
-          Privacy Policy
-        </Link>
-        <span aria-hidden>·</span>
-        <Link
-          href="/terms"
-          className="underline-offset-4 hover:text-foreground hover:underline"
-        >
-          Terms of Service
-        </Link>
-      </footer>
     </main>
   );
 }

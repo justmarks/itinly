@@ -391,12 +391,22 @@ export async function createApp(options: AppOptions): Promise<express.Express> {
     app.use(
       "/api/v1/trips",
       requireAuth,
-      createCalendarRoutes({ resolveStorage, connectorResolvers }),
+      createCalendarRoutes({
+        resolveStorage,
+        connectorResolvers,
+        shareRegistry,
+        resolveOwnerStorage,
+      }),
     );
   } else {
     app.use(
       "/api/v1/trips",
-      createCalendarRoutes({ resolveStorage, connectorResolvers }),
+      createCalendarRoutes({
+        resolveStorage,
+        connectorResolvers,
+        shareRegistry,
+        resolveOwnerStorage,
+      }),
     );
   }
 
@@ -483,6 +493,7 @@ export async function createApp(options: AppOptions): Promise<express.Express> {
         dueScheduleStore,
         connectionsStore,
         notificationSender,
+        anthropicApiKey: config.anthropic.apiKey,
       }),
     );
   } else {
@@ -494,6 +505,7 @@ export async function createApp(options: AppOptions): Promise<express.Express> {
         dueScheduleStore,
         connectionsStore,
         notificationSender,
+        anthropicApiKey: config.anthropic.apiKey,
       }),
     );
   }

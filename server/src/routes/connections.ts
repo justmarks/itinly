@@ -126,7 +126,16 @@ export function createConnectionsRoutes(
       res.status(401).json({ error: "Not authenticated" });
       return;
     }
-    const list = await store.listForUser(req.userId);
+    // `?includeRevoked=true` opts into the full row list so the
+    // reconnect-banner client can detect connections silently revoked
+    // upstream (Google's 7-day unverified-app expiry, user revoked at
+    // google.com/security, etc). Default behaviour (param absent or
+    // any non-"true" value) stays active-only so existing consumers
+    // — settings panels, connector resolution — see no change.
+    const includeRevoked = req.query.includeRevoked === "true";
+    const list = includeRevoked
+      ? await store.listForUserIncludingRevoked(req.userId)
+      : await store.listForUser(req.userId);
     res.json({ connections: list.map(publicView) });
   });
 

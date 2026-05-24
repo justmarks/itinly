@@ -87,6 +87,23 @@ export class ConnectionsStore {
     return rows.map((row) => this.rowToConnection(row));
   }
 
+  /**
+   * List all connections owned by a user — INCLUDING revoked ones.
+   * Used by the GET endpoint when the client explicitly opts in
+   * (`?includeRevoked=true`), so the reconnect banner can surface
+   * connections that Google / Microsoft silently revoked (e.g. the
+   * 7-day unverified-app refresh-token expiry) without dropping them
+   * from the UI entirely. Token columns are decrypted; the route
+   * still strips them before serialisation.
+   */
+  async listForUserIncludingRevoked(userId: string): Promise<Connection[]> {
+    const rows = await this.db
+      .select()
+      .from(connections)
+      .where(eq(connections.userId, userId));
+    return rows.map((row) => this.rowToConnection(row));
+  }
+
   /** Find an active connection by composite key. Returns null if missing. */
   async findByKey(args: {
     userId: string;

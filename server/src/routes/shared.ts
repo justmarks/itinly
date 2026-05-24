@@ -195,6 +195,9 @@ export function createSharedRoutes(options: SharedRoutesOptions): Router {
         })),
       })),
       todos: foundShare.showTodos ? foundTrip.todos : [],
+      // Places carry no cost / personal-task data, so they ride the
+      // share's general read access. Public link viewers see the list.
+      places: foundTrip.places ?? [],
       permission: foundShare.permission,
     };
 

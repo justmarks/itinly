@@ -36,6 +36,7 @@ import { MobileCreateTripSheet } from "@/components/mobile/mobile-create-trip-sh
 import { MobileEmailScanSheet } from "@/components/mobile/mobile-email-scan-sheet";
 import { MobileAutoShareSheet } from "@/components/mobile/mobile-auto-share-sheet";
 import { AutoScanBanner } from "@/components/auto-scan-banner";
+import { ConnectionRevokedBanner } from "@/components/connection-revoked-banner";
 import {
   MobileTripRowSkeleton,
   StillLoadingHint,
@@ -542,6 +543,7 @@ function MobileHomeContent(): React.JSX.Element {
           onAutoShare={() => setAutoShareOpen(true)}
         />
       </header>
+      <ConnectionRevokedBanner variant="mobile" />
       <AutoScanBanner href="/m" variant="mobile" />
       <div className="flex-1 overflow-y-auto pb-6">
         <MobileTripList onCreateTrip={() => setCreateOpen(true)} />

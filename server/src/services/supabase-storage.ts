@@ -23,10 +23,12 @@ import {
   CURRENT_TRIP_SCHEMA_VERSION,
   type EmailScanRun,
   type EmailScanSchedule,
+  type Place,
   type Trip,
   type TripDay,
   type TripShare,
   type TripShareRule,
+  type TripUserCalendarSync,
   type Segment,
   type Todo,
   type TripHistoryEntry,
@@ -39,12 +41,14 @@ import {
   trips as tripsTable,
   segments as segmentsTable,
   todos as todosTable,
+  places as placesTable,
   tripHistory as historyTable,
   shareRules as shareRulesTable,
   processedEmails as processedEmailsTable,
   userSettings as settingsTable,
   emailScanSchedules as emailScanSchedulesTable,
   emailScanRuns as emailScanRunsTable,
+  tripUserCalendarSyncs as tripUserCalendarSyncsTable,
 } from "../db/schema";
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -86,7 +90,7 @@ export class SupabaseStorage implements StorageProvider {
     if (tripRows.length === 0) return [];
     const ids = tripRows.map((t) => t.id);
 
-    const [segmentRows, todoRows, historyRows] = await Promise.all([
+    const [segmentRows, todoRows, placeRows, historyRows] = await Promise.all([
       this.db
         .select()
         .from(segmentsTable)
@@ -99,6 +103,11 @@ export class SupabaseStorage implements StorageProvider {
         .orderBy(asc(todosTable.sortOrder)),
       this.db
         .select()
+        .from(placesTable)
+        .where(inArray(placesTable.tripId, ids))
+        .orderBy(asc(placesTable.sortOrder)),
+      this.db
+        .select()
         .from(historyTable)
         .where(inArray(historyTable.tripId, ids))
         .orderBy(asc(historyTable.ts)),
@@ -106,12 +115,14 @@ export class SupabaseStorage implements StorageProvider {
 
     const segByTrip = groupBy(segmentRows, (s) => s.tripId);
     const todosByTrip = groupBy(todoRows, (t) => t.tripId);
+    const placesByTrip = groupBy(placeRows, (p) => p.tripId);
     const historyByTrip = groupBy(historyRows, (h) => h.tripId);
 
     return tripRows.map((row) =>
       assembleTrip(row, {
         segments: segByTrip.get(row.id) ?? [],
         todos: todosByTrip.get(row.id) ?? [],
+        places: placesByTrip.get(row.id) ?? [],
         history: historyByTrip.get(row.id) ?? [],
       }),
     );
@@ -127,7 +138,7 @@ export class SupabaseStorage implements StorageProvider {
 
     if (tripRows.length === 0) return null;
 
-    const [segmentRows, todoRows, historyRows] = await Promise.all([
+    const [segmentRows, todoRows, placeRows, historyRows] = await Promise.all([
       this.db
         .select()
         .from(segmentsTable)
@@ -140,6 +151,11 @@ export class SupabaseStorage implements StorageProvider {
         .orderBy(asc(todosTable.sortOrder)),
       this.db
         .select()
+        .from(placesTable)
+        .where(eq(placesTable.tripId, tripId))
+        .orderBy(asc(placesTable.sortOrder)),
+      this.db
+        .select()
         .from(historyTable)
         .where(eq(historyTable.tripId, tripId))
         .orderBy(asc(historyTable.ts)),
@@ -148,6 +164,7 @@ export class SupabaseStorage implements StorageProvider {
     return assembleTrip(tripRows[0], {
       segments: segmentRows,
       todos: todoRows,
+      places: placeRows,
       history: historyRows,
     });
   }
@@ -170,6 +187,11 @@ export class SupabaseStorage implements StorageProvider {
     // todos / history per save). Phase 2+ can optimise to per-row
     // diffs once we have multi-second history arrays in the wild.
     await this.db.transaction(async (tx) => {
+      // calendarId / calendarEventId moved to `trip_user_calendar_syncs`
+      // in migration 0007. We stop writing the legacy columns here so
+      // a future Drizzle migration can drop them safely. On UPDATE the
+      // existing column value is preserved (set: { ... } leaves it
+      // out); on INSERT the new row picks up the table default (null).
       await tx
         .insert(tripsTable)
         .values({
@@ -179,7 +201,6 @@ export class SupabaseStorage implements StorageProvider {
           startDate: trip.startDate,
           endDate: trip.endDate,
           status: trip.status,
-          calendarId: trip.calendarId ?? null,
           schemaVersion: trip.schemaVersion ?? CURRENT_TRIP_SCHEMA_VERSION,
           dayCities,
           shares: trip.shares ?? [],
@@ -193,7 +214,6 @@ export class SupabaseStorage implements StorageProvider {
             startDate: trip.startDate,
             endDate: trip.endDate,
             status: trip.status,
-            calendarId: trip.calendarId ?? null,
             schemaVersion: trip.schemaVersion ?? CURRENT_TRIP_SCHEMA_VERSION,
             dayCities,
             shares: trip.shares ?? [],
@@ -215,6 +235,18 @@ export class SupabaseStorage implements StorageProvider {
       if (trip.todos.length > 0) {
         await tx.insert(todosTable).values(
           trip.todos.map((t) => todoToRow(t, trip.id)),
+        );
+      }
+
+      await tx.delete(placesTable).where(eq(placesTable.tripId, trip.id));
+      // `places` is required on the current Trip type, but defensive `??`
+      // here protects against legacy callers that round-trip a Trip
+      // through `JSON.parse(JSON.stringify(...))` against a pre-v3 fixture
+      // (which the read path would also migrate before handing back).
+      const placesToInsert = trip.places ?? [];
+      if (placesToInsert.length > 0) {
+        await tx.insert(placesTable).values(
+          placesToInsert.map((p) => placeToRow(p, trip.id, this.userId)),
         );
       }
 
@@ -297,15 +329,18 @@ export class SupabaseStorage implements StorageProvider {
       rawParseResult: row.parsedResult ?? undefined,
       provider: (row.provider as "google" | "microsoft") ?? undefined,
       accountEmail: row.accountEmail || undefined,
+      parseError: row.parseError ?? undefined,
+      rawEmail:
+        (row.raw as ProcessedEmail["rawEmail"]) ?? undefined,
       createdAt: row.createdAt.toISOString(),
     }));
   }
 
   async saveProcessedEmails(emails: ProcessedEmail[]): Promise<void> {
-    // Replace-all matches the existing StorageProvider contract. The
-    // `raw` column stays NULL for phase 1 rows — phase 4 will start
-    // populating it once the connector layer surfaces full provider
-    // message bodies through the parsing pipeline.
+    // Replace-all matches the existing StorageProvider contract.
+    // `raw` (jsonb) + `parse_error` (text) carry the email snapshot +
+    // failure reason for parse failures — populated by the scan routes
+    // and surfaced via the `/emails/failures` debug endpoint.
     await this.db.transaction(async (tx) => {
       await tx
         .delete(processedEmailsTable)
@@ -335,8 +370,9 @@ export class SupabaseStorage implements StorageProvider {
           segmentId: e.segmentId ?? null,
           tripId: e.tripId ?? null,
           parseStatus: e.parseStatus,
+          parseError: e.parseError ?? null,
           parsedResult: (e.rawParseResult ?? null) as unknown,
-          raw: null,
+          raw: (e.rawEmail ?? null) as unknown,
           createdAt: new Date(e.createdAt),
         })),
       );
@@ -542,6 +578,83 @@ export class SupabaseStorage implements StorageProvider {
     }
   }
 
+  // ---- per-user calendar sync ----
+
+  async getTripUserCalendarSync(
+    tripId: string,
+    userId: string,
+  ): Promise<TripUserCalendarSync | null> {
+    const rows = await this.db
+      .select()
+      .from(tripUserCalendarSyncsTable)
+      .where(
+        and(
+          eq(tripUserCalendarSyncsTable.tripId, tripId),
+          eq(tripUserCalendarSyncsTable.userId, userId),
+        ),
+      )
+      .limit(1);
+    if (rows.length === 0) return null;
+    return calendarSyncFromRow(rows[0]);
+  }
+
+  async saveTripUserCalendarSync(
+    state: TripUserCalendarSync,
+  ): Promise<void> {
+    // Same defence-in-depth pattern as elsewhere — `this.userId`
+    // belongs to the requester; we refuse to write a row attributed
+    // to anyone else.
+    if (state.userId !== this.userId) {
+      throw new Error(
+        `SupabaseStorage.saveTripUserCalendarSync: userId mismatch (got ${state.userId}, scoped to ${this.userId})`,
+      );
+    }
+    const row = calendarSyncToRow(state);
+    await this.db
+      .insert(tripUserCalendarSyncsTable)
+      .values(row)
+      .onConflictDoUpdate({
+        target: [
+          tripUserCalendarSyncsTable.tripId,
+          tripUserCalendarSyncsTable.userId,
+        ],
+        set: {
+          calendarId: row.calendarId,
+          segmentEventMap: row.segmentEventMap,
+          updatedAt: row.updatedAt,
+        },
+      });
+  }
+
+  async deleteTripUserCalendarSync(
+    tripId: string,
+    userId: string,
+  ): Promise<void> {
+    if (userId !== this.userId) {
+      throw new Error(
+        `SupabaseStorage.deleteTripUserCalendarSync: userId mismatch (got ${userId}, scoped to ${this.userId})`,
+      );
+    }
+    await this.db
+      .delete(tripUserCalendarSyncsTable)
+      .where(
+        and(
+          eq(tripUserCalendarSyncsTable.tripId, tripId),
+          eq(tripUserCalendarSyncsTable.userId, userId),
+        ),
+      );
+  }
+
+  async listTripUserCalendarSyncsForUser(
+    userId: string,
+  ): Promise<TripUserCalendarSync[]> {
+    const rows = await this.db
+      .select()
+      .from(tripUserCalendarSyncsTable)
+      .where(eq(tripUserCalendarSyncsTable.userId, userId));
+    return rows.map(calendarSyncFromRow);
+  }
+
   async deleteAllForUser(userId: string): Promise<void> {
     // Defence in depth: the route already constructs storage scoped to
     // `req.userId`, but reject a mismatch loudly so a future bug can't
@@ -572,6 +685,14 @@ export class SupabaseStorage implements StorageProvider {
       await tx
         .delete(emailScanSchedulesTable)
         .where(eq(emailScanSchedulesTable.userId, this.userId));
+      // trip_user_calendar_syncs has FK to trips with ON DELETE
+      // CASCADE, so deleting this user's trips already drops THEIR
+      // sync rows. But sync rows where the requester is a RECIPIENT
+      // (their userId on a someone-else-owned trip) aren't covered
+      // by that cascade — clean them up explicitly.
+      await tx
+        .delete(tripUserCalendarSyncsTable)
+        .where(eq(tripUserCalendarSyncsTable.userId, this.userId));
       await tx
         .delete(settingsTable)
         .where(eq(settingsTable.userId, this.userId));
@@ -585,6 +706,32 @@ type EmailScanScheduleRow = typeof emailScanSchedulesTable.$inferSelect;
 type EmailScanScheduleInsert = typeof emailScanSchedulesTable.$inferInsert;
 type EmailScanRunRow = typeof emailScanRunsTable.$inferSelect;
 type EmailScanRunInsert = typeof emailScanRunsTable.$inferInsert;
+type TripUserCalendarSyncRow = typeof tripUserCalendarSyncsTable.$inferSelect;
+type TripUserCalendarSyncInsert = typeof tripUserCalendarSyncsTable.$inferInsert;
+
+function calendarSyncFromRow(row: TripUserCalendarSyncRow): TripUserCalendarSync {
+  return {
+    id: row.id,
+    tripId: row.tripId,
+    userId: row.userId,
+    calendarId: row.calendarId,
+    segmentEventMap: row.segmentEventMap,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function calendarSyncToRow(s: TripUserCalendarSync): TripUserCalendarSyncInsert {
+  return {
+    id: s.id,
+    tripId: s.tripId,
+    userId: s.userId,
+    calendarId: s.calendarId,
+    segmentEventMap: s.segmentEventMap,
+    createdAt: new Date(s.createdAt),
+    updatedAt: new Date(s.updatedAt),
+  };
+}
 
 function scheduleFromRow(row: EmailScanScheduleRow): EmailScanSchedule {
   return {
@@ -657,6 +804,7 @@ function runToRow(r: EmailScanRun): EmailScanRunInsert {
 type TripRow = typeof tripsTable.$inferSelect;
 type SegmentRow = typeof segmentsTable.$inferSelect;
 type TodoRow = typeof todosTable.$inferSelect;
+type PlaceRow = typeof placesTable.$inferSelect;
 type HistoryRow = typeof historyTable.$inferSelect;
 type ShareRuleRow = typeof shareRulesTable.$inferSelect;
 
@@ -665,6 +813,7 @@ function assembleTrip(
   children: {
     segments: SegmentRow[];
     todos: TodoRow[];
+    places: PlaceRow[];
     history: HistoryRow[];
   },
 ): Trip {
@@ -688,11 +837,16 @@ function assembleTrip(
     status: row.status as Trip["status"],
     days,
     todos: children.todos.map(todoFromRow),
+    places: children.places.map(placeFromRow),
     shares: ((row.shares as TripShare[] | null) ?? []) as TripShare[],
     history: children.history.map(historyFromRow),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    calendarId: row.calendarId ?? undefined,
+    // `calendarId` deliberately omitted — the per-(trip, user) sync
+    // state lives in `trip_user_calendar_syncs`. The legacy column on
+    // `trips` was backfilled by migration 0007 and is no longer
+    // authoritative; reads come from the new table via a separate
+    // API endpoint.
     schemaVersion: row.schemaVersion,
   };
 }
@@ -711,7 +865,11 @@ function segmentFromRow(row: SegmentRow): Segment {
     sourceEmailId: row.sourceEmailId ?? undefined,
     needsReview: row.needsReview,
     sortOrder: row.sortOrder,
-    calendarEventId: row.calendarEventId ?? undefined,
+    // `calendarEventId` deliberately omitted — it moved into
+    // `trip_user_calendar_syncs.segment_event_map` so each user has
+    // their own event id for the same segment. Reads come via a
+    // dedicated calendar-sync endpoint.
+    //
     // Variant-specific fields live in `data` jsonb. Object-spread is
     // last-wins, so any of the typed-column keys above would lose to
     // a stale `data` entry — `segmentToRow` guarantees that doesn't
@@ -730,6 +888,10 @@ function segmentToRow(
   // Carved out of the segment: scalars handled by typed columns,
   // everything else goes into `data`. Keeps the column list short and
   // future variant additions zero-migration.
+  // `calendarEventId` is destructured out so it doesn't leak into the
+  // `data` jsonb. The dedicated column on `segments` is a legacy
+  // single-user field — new writes don't set it; per-user state lives
+  // in `trip_user_calendar_syncs.segment_event_map`.
   const {
     id,
     type,
@@ -742,9 +904,10 @@ function segmentToRow(
     sourceEmailId,
     needsReview,
     sortOrder,
-    calendarEventId,
+    calendarEventId: _legacyCalendarEventId,
     ...data
   } = seg;
+  void _legacyCalendarEventId;
   return {
     id,
     tripId,
@@ -759,7 +922,8 @@ function segmentToRow(
     source,
     sourceEmailId: sourceEmailId ?? null,
     needsReview,
-    calendarEventId: calendarEventId ?? null,
+    // calendarEventId column intentionally omitted (legacy; migrated
+    // out by 0007).
     data: data as Record<string, unknown>,
   };
 }
@@ -787,6 +951,39 @@ function todoToRow(
     category: todo.category ?? null,
     details: todo.details ?? null,
     sortOrder: todo.sortOrder,
+  };
+}
+
+function placeFromRow(row: PlaceRow): Place {
+  return {
+    id: row.id,
+    name: row.name ?? undefined,
+    address: row.address ?? undefined,
+    url: row.url ?? undefined,
+    city: row.city ?? undefined,
+    notes: row.notes ?? undefined,
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function placeToRow(
+  place: Place,
+  tripId: string,
+  userId: string,
+): typeof placesTable.$inferInsert {
+  return {
+    id: place.id,
+    tripId,
+    userId,
+    name: place.name ?? null,
+    address: place.address ?? null,
+    url: place.url ?? null,
+    city: place.city ?? null,
+    notes: place.notes ?? null,
+    sortOrder: place.sortOrder,
+    createdAt: new Date(place.createdAt),
+    updatedAt: new Date(),
   };
 }
 

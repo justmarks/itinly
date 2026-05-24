@@ -128,6 +128,35 @@ export interface Todo {
   sortOrder: number;
 }
 
+/**
+ * A point-of-interest the traveller wants to remember for the trip but
+ * hasn't scheduled into a day or segment — a museum, a viewpoint, a
+ * neighbourhood, a shop. Distinct from a `Todo` (this is a place, not
+ * an action) and distinct from a `Segment` (no date, no time). Pinnable
+ * on the map view; groupable by city; a future "schedule this" action
+ * can promote a place into a real segment.
+ *
+ * At least one of `name`, `address`, or `url` is required by the
+ * validator — but they're all optional at the type level so other
+ * callers (storage layer, migrations) don't have to enforce it
+ * separately.
+ */
+export interface Place {
+  id: string;
+  /** Display name (e.g. "Louvre", "Shibuya Crossing"). */
+  name?: string;
+  /** Street address or descriptive location used for geocoding. */
+  address?: string;
+  /** External link — booking page, official site, Google Maps URL. */
+  url?: string;
+  /** Optional city tag. Used to group places in the UI. */
+  city?: string;
+  /** Free-form notes. */
+  notes?: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
 export interface TripShare {
   id: string;
   shareToken: string;
@@ -212,6 +241,9 @@ export type TripHistoryKind =
   | "share.create"
   | "share.revoke"
   | "share.leave"
+  | "place.create"
+  | "place.update"
+  | "place.delete"
   | "bulk.import_xlsx"
   | "bulk.email_apply"
   | "bulk.confirm_all";
@@ -252,7 +284,7 @@ export interface TripHistoryEntry {
  * Storage layers call `migrateTrip` on every `getTrip`/`listTrips` read,
  * so by the next save the field has been normalised onto the trip.
  */
-export const CURRENT_TRIP_SCHEMA_VERSION = 2;
+export const CURRENT_TRIP_SCHEMA_VERSION = 3;
 
 export interface Trip {
   id: string;
@@ -263,6 +295,13 @@ export interface Trip {
   days: TripDay[];
   todos: Todo[];
   shares: TripShare[];
+  /**
+   * Per-trip list of points-of-interest the traveller wants to remember
+   * but hasn't scheduled into a day yet. Pinnable on the Map tab.
+   * Older trips loaded before this field existed get an empty array via
+   * `migrateTrip`.
+   */
+  places: Place[];
   /**
    * Append-only audit log of mutations. Trimmed to the most recent 500
    * entries on write. Older trips loaded before this field existed get
@@ -529,4 +568,34 @@ export interface EmailScanRun {
   newCount: number;
   /** Sentence-form error message when status === "failed". */
   errorMessage?: string;
+}
+
+/**
+ * Per-(trip, user) calendar-sync state. Backs the
+ * `trip_user_calendar_syncs` table — one row per user who has synced
+ * the trip to their OWN Google / Outlook calendar.
+ *
+ * Replaces the legacy single-user model where `trip.calendarId` and
+ * `segment.calendarEventId` lived on the trip row directly. Those
+ * legacy fields still exist on the in-memory Trip / Segment types so
+ * route handlers can merge a requester's sync state into the
+ * response for backward compat with the frontend reading them; new
+ * writes go through this type instead.
+ */
+export interface TripUserCalendarSync {
+  id: string;
+  tripId: string;
+  /** The user whose calendar the trip is synced to. */
+  userId: string;
+  /** Provider-side calendar id (Google "primary" / Microsoft id). */
+  calendarId: string;
+  /**
+   * `{ [segmentId]: calendarEventId }`. Empty when the user has
+   * picked a calendar but no segment has been pushed yet (or after
+   * an unsync that preserves the calendar choice). Segments absent
+   * from the map have not been pushed to this user's calendar.
+   */
+  segmentEventMap: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
 }

@@ -61,6 +61,39 @@ describe("migrateTrip", () => {
     expect(migrated.history[0].id).toBe("h1");
   });
 
+  it("v2 → v3: stamps an empty places array on a v2 trip", () => {
+    const raw = makeV0TripJson({ schemaVersion: 2, history: [] });
+    const migrated = migrateTrip(raw);
+    expect(migrated.schemaVersion).toBeGreaterThanOrEqual(3);
+    expect(migrated.places).toEqual([]);
+  });
+
+  it("v2 → v3: preserves an existing places array if somehow set", () => {
+    const raw = makeV0TripJson({
+      schemaVersion: 2,
+      history: [],
+      places: [
+        {
+          id: "p1",
+          name: "Louvre",
+          sortOrder: 0,
+          createdAt: "2025-05-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const migrated = migrateTrip(raw);
+    expect(migrated.places).toHaveLength(1);
+    expect(migrated.places[0].id).toBe("p1");
+  });
+
+  it("v0 → current: stamps places + history + schemaVersion in one pass", () => {
+    const raw = makeV0TripJson();
+    const migrated = migrateTrip(raw);
+    expect(migrated.places).toEqual([]);
+    expect(migrated.history).toEqual([]);
+    expect(migrated.schemaVersion).toBe(CURRENT_TRIP_SCHEMA_VERSION);
+  });
+
   it("passes through a trip already at the current schema version", () => {
     const raw = makeV0TripJson({ schemaVersion: CURRENT_TRIP_SCHEMA_VERSION });
     const migrated = migrateTrip(raw);

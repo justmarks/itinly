@@ -14,6 +14,7 @@ import type {
   Trip,
   Segment,
   Todo,
+  Place,
   TripShare,
   TripShareRule,
   TripDay,
@@ -22,6 +23,8 @@ import type {
   CreateSegmentInput,
   CreateTodoInput,
   UpdateTodoInput,
+  CreatePlaceInput,
+  UpdatePlaceInput,
   CreateShareInput,
   CreateShareRuleInput,
   UpdateShareRuleInput,
@@ -435,6 +438,36 @@ const SAMPLE_TRIPS: Trip[] = [
         lastEditedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       },
     ],
+    // Sample "Places to go" so the new Places tab + map pins have content
+    // out of the box in demo mode.
+    places: [
+      {
+        id: "place-j1",
+        name: "Tsukiji Outer Market",
+        address: "5 Chome-2-1 Tsukiji, Chuo City, Tokyo",
+        city: "Tokyo",
+        notes: "Best for breakfast — go before 9am.",
+        sortOrder: 0,
+        createdAt: "2025-03-05T10:00:00Z",
+      },
+      {
+        id: "place-j2",
+        name: "teamLab Planets",
+        url: "https://www.teamlab.art/e/planets/",
+        city: "Tokyo",
+        sortOrder: 1,
+        createdAt: "2025-03-05T10:05:00Z",
+      },
+      {
+        id: "place-j3",
+        name: "Fushimi Inari Shrine",
+        address: "68 Fukakusa Yabunouchicho, Fushimi Ward, Kyoto",
+        city: "Kyoto",
+        notes: "Hike the full route at sunrise to dodge the crowds.",
+        sortOrder: 2,
+        createdAt: "2025-03-05T10:10:00Z",
+      },
+    ],
     // Sample audit-log entries so the History tab has something to show in
     // the demo without requiring the user to make edits first. Mix of
     // owner + co-editor actions to demonstrate the actor column.
@@ -677,6 +710,25 @@ const SAMPLE_TRIPS: Trip[] = [
       { id: "todo-p1", text: "Book Le Jules Verne (reserve months ahead!)", isCompleted: true, category: "meals", sortOrder: 0 },
       { id: "todo-p2", text: "Buy Paris Museum Pass", isCompleted: true, category: "activities", sortOrder: 1 },
       { id: "todo-p3", text: "Research Montmartre neighbourhood", isCompleted: true, category: "research", sortOrder: 2 },
+    ],
+    places: [
+      {
+        id: "place-p1",
+        name: "Sacré-Cœur Basilica",
+        address: "35 Rue du Chevalier de la Barre, 75018 Paris",
+        city: "Paris",
+        sortOrder: 0,
+        createdAt: "2025-03-12T10:00:00Z",
+      },
+      {
+        id: "place-p2",
+        name: "Marché des Enfants Rouges",
+        url: "https://www.parisinfo.com/musee-monument-paris/71428/Marche-des-Enfants-Rouges",
+        city: "Paris",
+        notes: "Oldest covered market in Paris — great lunch.",
+        sortOrder: 1,
+        createdAt: "2025-03-12T10:02:00Z",
+      },
     ],
     shares: [],
     history: [],
@@ -1023,6 +1075,7 @@ const SAMPLE_TRIPS: Trip[] = [
       { id: "todo-d7", text: "Pack reef-safe sunscreen and snorkel gear", isCompleted: false, category: "logistics", sortOrder: 6 },
       { id: "todo-d8", text: "Purchase Disney gift cards for onboard credit", isCompleted: false, category: "logistics", sortOrder: 7 },
     ],
+    places: [],
     shares: [],
     history: [],
   },
@@ -1309,6 +1362,25 @@ const SAMPLE_TRIPS: Trip[] = [
       { id: "todo-i7", text: "Research puffin-watching tours near Vík", isCompleted: false, category: "research", sortOrder: 6 },
       { id: "todo-i8", text: "Notify bank of international travel", isCompleted: false, category: "logistics", sortOrder: 7 },
     ],
+    places: [
+      {
+        id: "place-i1",
+        name: "Diamond Beach",
+        address: "Diamond Beach, Hofn, Iceland",
+        city: "Vík",
+        notes: "Park at the eastern lot — fewer tourists.",
+        sortOrder: 0,
+        createdAt: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "place-i2",
+        name: "Hallgrímskirkja",
+        url: "https://hallgrimskirkja.is/en/",
+        city: "Reykjavík",
+        sortOrder: 1,
+        createdAt: "2026-03-01T10:05:00Z",
+      },
+    ],
     shares: [],
     history: [],
   },
@@ -1391,6 +1463,7 @@ export class MockApiClient extends ApiClient {
       status: "planning",
       days,
       todos: [],
+      places: [],
       shares: [],
       history: [],
       createdAt: now(),
@@ -1489,6 +1562,7 @@ export class MockApiClient extends ApiClient {
       status: "planning",
       days,
       todos: [],
+      places: [],
       shares: [],
       history: [],
       createdAt: now(),
@@ -1723,6 +1797,81 @@ export class MockApiClient extends ApiClient {
     return Promise.resolve();
   }
 
+  // ─── Places ──────────────────────────────────────────────
+
+  override listPlaces(tripId: string): Promise<Place[]> {
+    const trip = this.trips.get(tripId);
+    if (!trip) return Promise.reject(new Error("Trip not found"));
+    if (!Array.isArray(trip.places)) trip.places = [];
+    return Promise.resolve(structuredClone(trip.places));
+  }
+
+  override createPlace(
+    tripId: string,
+    input: CreatePlaceInput,
+  ): Promise<Place> {
+    const trip = this.trips.get(tripId);
+    if (!trip) return Promise.reject(new Error("Trip not found"));
+    if (!Array.isArray(trip.places)) trip.places = [];
+    if (!input.name?.trim() && !input.address?.trim() && !input.url?.trim()) {
+      return Promise.reject(
+        new Error("At least one of name, address, or url is required"),
+      );
+    }
+    const place: Place = {
+      id: `place-${uid()}`,
+      sortOrder: trip.places.length,
+      createdAt: now(),
+      ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+      ...(input.address?.trim() ? { address: input.address.trim() } : {}),
+      ...(input.url?.trim() ? { url: input.url.trim() } : {}),
+      ...(input.city?.trim() ? { city: input.city.trim() } : {}),
+      ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
+    };
+    trip.places.push(place);
+    return Promise.resolve(structuredClone(place));
+  }
+
+  override updatePlace(
+    tripId: string,
+    placeId: string,
+    input: UpdatePlaceInput,
+  ): Promise<Place> {
+    const trip = this.trips.get(tripId);
+    if (!trip) return Promise.reject(new Error("Trip not found"));
+    if (!Array.isArray(trip.places)) trip.places = [];
+    const place = trip.places.find((p) => p.id === placeId);
+    if (!place) return Promise.reject(new Error("Place not found"));
+    const apply = (key: keyof Place, value: string | null | undefined) => {
+      if (value === undefined) return;
+      if (value === null || value === "") {
+        delete (place as unknown as Record<string, unknown>)[key];
+      } else {
+        (place as unknown as Record<string, unknown>)[key] = value.trim();
+      }
+    };
+    apply("name", input.name);
+    apply("address", input.address);
+    apply("url", input.url);
+    apply("city", input.city);
+    apply("notes", input.notes);
+    if (input.sortOrder !== undefined) place.sortOrder = input.sortOrder;
+    if (!place.name?.trim() && !place.address?.trim() && !place.url?.trim()) {
+      return Promise.reject(
+        new Error("At least one of name, address, or url is required"),
+      );
+    }
+    return Promise.resolve(structuredClone(place));
+  }
+
+  override deletePlace(tripId: string, placeId: string): Promise<void> {
+    const trip = this.trips.get(tripId);
+    if (!trip) return Promise.reject(new Error("Trip not found"));
+    if (!Array.isArray(trip.places)) trip.places = [];
+    trip.places = trip.places.filter((p) => p.id !== placeId);
+    return Promise.resolve();
+  }
+
   // ─── Shares ──────────────────────────────────────────────
 
   override listShares(tripId: string): Promise<TripShare[]> {
@@ -1918,6 +2067,7 @@ export class MockApiClient extends ApiClient {
             })),
           })),
           todos: showTodos ? trip.todos : [],
+          places: trip.places ?? [],
           permission: permission === "edit" ? "edit" : "view",
         });
       }
@@ -1942,6 +2092,7 @@ export class MockApiClient extends ApiClient {
             })),
           })),
           todos: share.showTodos ? trip.todos : [],
+          places: trip.places ?? [],
           permission: share.permission,
         });
       }
@@ -2199,6 +2350,13 @@ export class MockApiClient extends ApiClient {
     return Promise.resolve([]);
   }
 
+  override getEmailFailures(): ReturnType<ApiClient["getEmailFailures"]> {
+    // Demo mode never runs the parser, so there are no failures to
+    // serve. Returning an empty list keeps the "Copy debug" button
+    // from blowing up when someone clicks it on a demo trip.
+    return Promise.resolve({ failures: [] });
+  }
+
   override dismissEmail(_emailId: string): Promise<{ status: string }> {
     return Promise.resolve({ status: "dismissed" });
   }
@@ -2273,26 +2431,59 @@ export class MockApiClient extends ApiClient {
 
   // ─── Calendar Sync ──────────────────────────────────────
 
+  // Per-user calendar-sync state. Demo mode is single-user so there's
+  // no point keying by userId — one Map per tripId is enough to
+  // round-trip the per-trip state across sync/unsync calls.
+  private calendarSyncs: Map<
+    string,
+    { calendarId: string; segmentEventMap: Record<string, string> }
+  > = new Map();
+
+  override getTripCalendarSync(
+    tripId: string,
+  ): Promise<import("@itinly/shared").TripUserCalendarSync | null> {
+    const state = this.calendarSyncs.get(tripId);
+    if (!state) return Promise.resolve(null);
+    const now = new Date().toISOString();
+    return Promise.resolve({
+      id: `demo-sync-${tripId}`,
+      tripId,
+      userId: "demo-user",
+      calendarId: state.calendarId,
+      segmentEventMap: state.segmentEventMap,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
   override syncCalendar(
     tripId: string,
+    calendarId?: string,
   ): Promise<{ created: number; updated: number; failed: number; calendarId: string }> {
     const trip = this.trips.get(tripId);
     if (!trip) return Promise.reject(new Error("Trip not found"));
+
+    const targetCalendarId = calendarId ?? "primary";
+    const prior = this.calendarSyncs.get(tripId);
+    const map: Record<string, string> = { ...(prior?.segmentEventMap ?? {}) };
 
     let created = 0;
     let updated = 0;
     for (const day of trip.days) {
       for (const segment of day.segments) {
-        if (segment.calendarEventId) {
+        if (map[segment.id]) {
           updated++;
         } else {
-          segment.calendarEventId = `mock-event-${segment.id}`;
+          map[segment.id] = `mock-event-${segment.id}`;
           created++;
         }
       }
     }
-    this.trips.set(tripId, trip);
-    return Promise.resolve({ created, updated, failed: 0, calendarId: "primary" });
+    this.calendarSyncs.set(tripId, {
+      calendarId: targetCalendarId,
+      segmentEventMap: map,
+    });
+    return Promise.resolve({ created, updated, failed: 0, calendarId: targetCalendarId });
   }
 
   override unsyncCalendar(
@@ -2301,16 +2492,9 @@ export class MockApiClient extends ApiClient {
     const trip = this.trips.get(tripId);
     if (!trip) return Promise.reject(new Error("Trip not found"));
 
-    let removed = 0;
-    for (const day of trip.days) {
-      for (const segment of day.segments) {
-        if (segment.calendarEventId) {
-          delete segment.calendarEventId;
-          removed++;
-        }
-      }
-    }
-    this.trips.set(tripId, trip);
+    const prior = this.calendarSyncs.get(tripId);
+    const removed = prior ? Object.keys(prior.segmentEventMap).length : 0;
+    this.calendarSyncs.delete(tripId);
     return Promise.resolve({ removed, failed: 0 });
   }
 
@@ -2343,5 +2527,11 @@ export class MockApiClient extends ApiClient {
 
   override listEmailScanRuns() {
     return Promise.resolve([]);
+  }
+
+  override runEmailScanScheduleNow() {
+    return Promise.reject(
+      new Error("Demo mode can't run real scans — sign in with a real account."),
+    );
   }
 }

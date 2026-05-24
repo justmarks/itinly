@@ -70,6 +70,7 @@ import { ShareTripDialog } from "@/components/share-trip-dialog";
 import { ItineraryDay, computeOngoingStays } from "@/components/itinerary-day";
 import { TripTodos } from "@/components/trip-todos";
 import { TripCosts } from "@/components/trip-costs";
+import { TripPlaces } from "@/components/trip-places";
 import { TimelineView } from "@/components/timeline-view";
 import { MapView } from "@/components/map-view";
 import { TripHistory } from "@/components/trip-history";
@@ -153,7 +154,7 @@ function EditableTitle({ tripId, title }: { tripId: string; title: string }) {
   if (editing) {
     return (
       <form
-        className="flex items-center gap-2"
+        className="flex min-w-0 flex-1 items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           save();
@@ -162,7 +163,7 @@ function EditableTitle({ tripId, title }: { tripId: string; title: string }) {
         <Input
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="h-9 text-2xl font-bold"
+          className="h-9 w-full min-w-0 text-2xl font-bold"
           autoFocus
           onKeyDown={(e) => {
             if (e.key === "Escape") cancelEdit();
@@ -173,7 +174,7 @@ function EditableTitle({ tripId, title }: { tripId: string; title: string }) {
           variant="ghost"
           size="icon"
           aria-label="Save trip name"
-          className="h-8 w-8"
+          className="h-8 w-8 shrink-0"
           disabled={!value.trim() || updateTrip.isPending}
         >
           <Check className="h-4 w-4" />
@@ -183,7 +184,7 @@ function EditableTitle({ tripId, title }: { tripId: string; title: string }) {
           variant="ghost"
           size="icon"
           aria-label="Cancel rename"
-          className="h-8 w-8"
+          className="h-8 w-8 shrink-0"
           onClick={cancelEdit}
         >
           <X className="h-4 w-4" />
@@ -195,10 +196,10 @@ function EditableTitle({ tripId, title }: { tripId: string; title: string }) {
   return (
     <button
       onClick={() => setEditing(true)}
-      className="group/title flex items-center gap-2 text-left"
+      className="group/title flex min-w-0 items-center gap-2 text-left"
       title="Rename trip"
     >
-      <h1 className="text-2xl font-bold break-words [overflow-wrap:anywhere]">{title}</h1>
+      <h1 className="min-w-0 text-2xl font-bold break-words [overflow-wrap:anywhere]">{title}</h1>
       <Pencil className="h-4 w-4 shrink-0 text-muted-foreground opacity-100 transition-opacity can-hover:opacity-0 can-hover:group-hover/title:opacity-100" />
     </button>
   );
@@ -419,24 +420,46 @@ function TripActionsMenu({
   trip,
   onImportEmail,
   canDelete,
+  ownShareId,
 }: {
   tripId: string;
   tripTitle: string;
-  trip: {
-    id: string;
-    calendarId?: string;
-    days: Array<{ segments: Array<{ calendarEventId?: string }> }>;
-  };
+  trip: { id: string };
   onImportEmail: () => void;
   /** Whether to surface the destructive "Delete trip" entry. Owner-only. */
   canDelete: boolean;
+  /**
+   * Recipient's own share row id. When set (i.e. the current user is a
+   * non-owner editor), a "Leave trip" entry replaces the owner-only
+   * "Delete trip" at the bottom of the menu. Folded into this menu so
+   * editor-shares don't see two adjacent `…` buttons in the header.
+   */
+  ownShareId?: string;
 }) {
   const client = useApiClient();
   const router = useRouter();
   const confirm = useConfirm();
   const deleteTrip = useDeleteTrip();
+  const deleteShare = useDeleteShare(tripId);
   const homeHref = useDemoHref("/");
   const [exporting, setExporting] = useState(false);
+
+  const handleLeave = async () => {
+    const ok = await confirm({
+      title: `Leave "${tripTitle}"?`,
+      description:
+        "You'll lose access to this trip — the owner will be notified.",
+      confirmText: "Leave",
+      destructive: true,
+    });
+    if (!ok || !ownShareId) return;
+    deleteShare.mutate(ownShareId, {
+      onSuccess: () => {
+        router.push(homeHref);
+      },
+      onError: toastMutationError("leave trip"),
+    });
+  };
 
   const handleDelete = async () => {
     const ok = await confirm({
@@ -506,6 +529,7 @@ function TripActionsMenu({
     calendarGranted,
     isSynced,
     syncedCount,
+    syncedCalendarId,
     syncedCalendarName,
     syncing,
     calendars,
@@ -527,7 +551,7 @@ function TripActionsMenu({
   const refreshCalendarList = async (providerOverride?: CalendarProvider) => {
     const cals = await loadCalendars(providerOverride);
     const primary = cals.find((c) => c.primary);
-    setSelectedCalendarId(trip.calendarId ?? primary?.id ?? "primary");
+    setSelectedCalendarId(syncedCalendarId ?? primary?.id ?? "primary");
   };
 
   const handleProviderChange = (next: CalendarProvider) => {
@@ -632,6 +656,19 @@ function TripActionsMenu({
               </DropdownMenuItem>
             </>
           )}
+          {!canDelete && ownShareId && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={handleLeave}
+                disabled={deleteShare.isPending}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Leave trip
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
       <CalendarSyncDialogs
@@ -649,6 +686,7 @@ function TripActionsMenu({
         calendars={calendars}
         loadingCalendars={loadingCalendars}
         syncedCount={syncedCount}
+        syncedCalendarId={syncedCalendarId}
         syncedCalendarName={syncedCalendarName}
         providerLabel={providerLabel}
         connectedProviders={connectedProviders}
@@ -810,6 +848,7 @@ function CalendarSyncDialogs({
   calendars,
   loadingCalendars,
   syncedCount,
+  syncedCalendarId,
   syncedCalendarName,
   providerLabel,
   connectedProviders,
@@ -830,6 +869,10 @@ function CalendarSyncDialogs({
   calendars: Array<{ id: string; summary: string; primary: boolean }> | null;
   loadingCalendars: boolean;
   syncedCount: number;
+  /** The currently-synced calendar id. Needed to gate the
+   *  "Loading sync details…" loader: only show it when we know
+   *  there's a name we'd want to resolve. */
+  syncedCalendarId: string | undefined;
   syncedCalendarName: string | undefined;
   providerLabel: string;
   connectedProviders: CalendarProvider[];
@@ -957,9 +1000,25 @@ function CalendarSyncDialogs({
               <DialogHeader>
                 <DialogTitle>{providerLabel} sync</DialogTitle>
                 <DialogDescription>
-                  {syncedCount} event{syncedCount !== 1 ? "s" : ""} synced
-                  {syncedCalendarName ? ` to ${syncedCalendarName}` : ""}.
-                  New and edited events are pushed automatically.
+                  {/* Hold the full description until `calendars` resolves so
+                      the user doesn't see "N events synced. New and edited…"
+                      flash and ~2 s later get rewritten with "to <Calendar>"
+                      appended once the provider's calendar list comes back.
+                      `calendars` starts null on every dialog open (see
+                      `loadCalendars`); we only need the loader when there's a
+                      stored `syncedCalendarId` we'd want to name. */}
+                  {calendars === null && syncedCalendarId ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading sync details…
+                    </span>
+                  ) : (
+                    <>
+                      {syncedCount} event{syncedCount !== 1 ? "s" : ""} synced
+                      {syncedCalendarName ? ` to ${syncedCalendarName}` : ""}.
+                      New and edited events are pushed automatically.
+                    </>
+                  )}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter className="flex-col gap-2 sm:flex-row">
@@ -1028,12 +1087,20 @@ function CalendarSyncDialogs({
 }
 
 
-type Tab = "itinerary" | "timeline" | "map" | "costs" | "todos" | "history";
+type Tab =
+  | "itinerary"
+  | "timeline"
+  | "map"
+  | "places"
+  | "costs"
+  | "todos"
+  | "history";
 
 const TAB_LABELS: Record<Tab, string> = {
   itinerary: "Itinerary",
   timeline:  "Timeline",
   map:       "Map",
+  places:    "Places",
   costs:     "Costs",
   todos:     "To-do",
   history:   "History",
@@ -1098,10 +1165,12 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
     [trip],
   );
   // Build the tab list dynamically so tabs the share hides don't even
-  // appear. Itinerary / Timeline / Map are always shown; Costs and
-  // To-do drop out for shares with the matching toggle off.
+  // appear. Itinerary / Timeline / Map / Places are always shown; Costs
+  // and To-do drop out for shares with the matching toggle off. Places
+  // mirrors Map's visibility — both visible to every viewer because the
+  // place list isn't sensitive (no cost / personal-task content).
   const visibleTabs = (
-    ["itinerary", "timeline", "map", "costs", "todos", "history"] as Tab[]
+    ["itinerary", "timeline", "map", "places", "costs", "todos", "history"] as Tab[]
   ).filter((t) => {
     if (t === "costs") return showCosts;
     if (t === "todos") return showTodos;
@@ -1110,7 +1179,7 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
 
   if (isLoading) {
     return (
-      <main className="min-h-screen p-8">
+      <main className="min-h-screen p-4 sm:p-8">
         <div className="mx-auto max-w-7xl space-y-6">
           <div className="h-8 w-48 animate-pulse rounded bg-muted" />
           <div className="h-64 animate-pulse rounded-xl border bg-muted" />
@@ -1125,7 +1194,7 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
     const is404 = error instanceof ApiError && error.status === 404;
     const showError = isError && !is404;
     return (
-      <main className="min-h-screen p-8">
+      <main className="min-h-screen p-4 sm:p-8">
         <div className="mx-auto max-w-7xl">
           <Link href={homeHref}>
             <Button variant="ghost" size="sm">
@@ -1178,7 +1247,7 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
 
   return (
     <RequireAuth>
-    <main className="flex h-screen flex-col p-8 print:h-auto print:block">
+    <main className="flex h-screen flex-col p-4 sm:p-8 print:h-auto print:block">
       <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col min-h-0 print:block">
 
         {/* Fixed header — back nav, title row, needs-review banner,
@@ -1213,13 +1282,6 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
                   <Share2 className="h-3.5 w-3.5" />
                   Share
                 </Button>
-                <TripActionsMenu
-                  tripId={trip.id}
-                  tripTitle={trip.title}
-                  trip={trip}
-                  onImportEmail={() => setHtmlImportOpen(true)}
-                  canDelete={permission.isOwner}
-                />
                 <HtmlImportDialog
                   tripId={trip.id}
                   hideTrigger
@@ -1233,13 +1295,36 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
                 />
               </>
             )}
-            {!permission.isLoading && !isOwner && ownShareId && (
-              <LeaveTripMenu
+            {/* Trip actions menu — Calendar sync now visible to ANY
+                edit user (recipients push to their OWN calendar via
+                the per-user `trip_user_calendar_syncs` row). Delete
+                + other owner-only items inside the menu still gate
+                on `canDelete`. */}
+            {!permission.isLoading && permission.canEdit && (
+              <TripActionsMenu
                 tripId={trip.id}
                 tripTitle={trip.title}
-                ownShareId={ownShareId}
+                trip={trip}
+                onImportEmail={() => setHtmlImportOpen(true)}
+                canDelete={permission.isOwner}
+                ownShareId={ownShareId ?? undefined}
               />
             )}
+            {/* Read-only recipients have no TripActionsMenu, so they
+                still need a standalone "Leave trip" affordance. Editor
+                recipients see Leave folded into TripActionsMenu above
+                — rendering both here would surface two adjacent `…`
+                buttons (a bug fixed in 2026-05). */}
+            {!permission.isLoading &&
+              !permission.canEdit &&
+              !isOwner &&
+              ownShareId && (
+                <LeaveTripMenu
+                  tripId={trip.id}
+                  tripTitle={trip.title}
+                  ownShareId={ownShareId}
+                />
+              )}
             <UserMenu />
           </div>
         </div>
@@ -1421,6 +1506,16 @@ export default function TripDetailClient({ tripId }: { tripId: string }): React.
         {activeTab === "timeline" && <TimelineView trip={trip} />}
 
         {activeTab === "map" && <MapView trip={trip} />}
+
+        {activeTab === "places" && (
+          <div className="rounded-xl border p-6">
+            <TripPlaces
+              tripId={trip.id}
+              places={trip.places ?? []}
+              readOnly={isReadOnly}
+            />
+          </div>
+        )}
 
         {activeTab === "costs" && showCosts && (
           <div className="rounded-xl border p-6">

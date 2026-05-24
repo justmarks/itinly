@@ -34,7 +34,7 @@ function MobileAccountSettingsBody(): React.JSX.Element | null {
         >
           <ChevronLeft className="h-5 w-5" />
         </Link>
-        <h1 className="text-base font-semibold">Account</h1>
+        <h1 className="text-base font-semibold">Settings</h1>
       </header>
 
       <div className="flex-1 px-4 py-6">

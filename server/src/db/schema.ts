@@ -45,7 +45,7 @@ export const trips = pgTable(
     endDate: date("end_date").notNull(),
     status: text("status").notNull(),
     calendarId: text("calendar_id"),
-    schemaVersion: integer("schema_version").notNull().default(2),
+    schemaVersion: integer("schema_version").notNull().default(3),
     // date → city map. Empty/missing keys fall back to a derivation
     // (last-known city, segment city, etc.) the storage layer applies
     // on read. Keeping this as a small jsonb avoids a `trip_days`
@@ -137,6 +137,37 @@ export const todos = pgTable(
       .defaultNow(),
   },
   (t) => [index("todos_trip_order_idx").on(t.tripId, t.sortOrder)],
+);
+
+// Per-trip "Places to go" list. Points-of-interest the traveller wants
+// to remember but hasn't scheduled — distinct from todos (action) and
+// segments (date + time bound). Pinnable on the Map view. Cascade-
+// delete with the trip mirrors the segments / todos FK behaviour.
+// `user_id` is denormalised from the parent trip so the owner-only RLS
+// policy can use a single-column equality check (Supabase's PostgREST
+// surface is gated by RLS; the server's postgres role has BYPASSRLS).
+export const places = pgTable(
+  "places",
+  {
+    id: text("id").primaryKey(),
+    tripId: text("trip_id")
+      .notNull()
+      .references(() => trips.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    name: text("name"),
+    address: text("address"),
+    url: text("url"),
+    city: text("city"),
+    notes: text("notes"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("places_trip_order_idx").on(t.tripId, t.sortOrder)],
 );
 
 // Append-only audit log. The storage layer trims to the most recent
@@ -466,5 +497,56 @@ export const connections = pgTable(
     // listForUser hits this on every authed page-load that needs to
     // know which providers a user has connected.
     index("connections_user_idx").on(t.userId),
+  ],
+);
+
+// Per-(trip, user) calendar sync state. One row records "user X has
+// pushed trip Y's segments to calendar Z; here are the event ids."
+// The legacy `trips.calendar_id` + `segments.calendar_event_id`
+// columns shipped a single-user model — only the owner could sync,
+// and the owner's event ids lived directly on the trip / segment
+// rows. Migrating to a per-user table lets recipients of a shared
+// edit-trip also push segments to their OWN Google / Outlook account
+// without clobbering the owner's event ids.
+//
+// `segmentEventMap` is a `Record<segmentId, calendarEventId>` so a
+// single row carries the entire trip's sync state for one user.
+// Reads are always "give me trip X for user Y" — the (trip_id,
+// user_id) composite is unique.
+//
+// Cascades on trip delete (the trip going away invalidates every
+// user's sync state for it). User deletes are handled out-of-band
+// since there's no FK on users.
+export const tripUserCalendarSyncs = pgTable(
+  "trip_user_calendar_syncs",
+  {
+    id: text("id").primaryKey(),
+    tripId: text("trip_id")
+      .notNull()
+      .references(() => trips.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    calendarId: text("calendar_id").notNull(),
+    // Record<segmentId, calendarEventId>. Empty object is valid and
+    // means "user picked a calendar but no segment is on it yet" —
+    // the calendar-sync `unsync` route leaves the row in place with
+    // an empty map so a subsequent sync re-uses the same calendarId
+    // pick.
+    segmentEventMap: jsonb("segment_event_map")
+      .$type<Record<string, string>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("trip_user_calendar_syncs_trip_user_uniq").on(
+      t.tripId,
+      t.userId,
+    ),
+    index("trip_user_calendar_syncs_user_idx").on(t.userId),
   ],
 );

@@ -8,6 +8,7 @@ import type {
   Trip,
   Segment,
   Todo,
+  Place,
   TripShare,
   TripShareRule,
   CreateTripInput,
@@ -15,6 +16,8 @@ import type {
   CreateSegmentInput,
   CreateTodoInput,
   UpdateTodoInput,
+  CreatePlaceInput,
+  UpdatePlaceInput,
   CreateShareInput,
   CreateShareRuleInput,
   UpdateShareRuleInput,
@@ -28,6 +31,7 @@ import type {
   XlsxImportRequest,
   EmailScanSchedule,
   EmailScanRun,
+  TripUserCalendarSync,
   CreateEmailScanScheduleInput,
   UpdateEmailScanScheduleInput,
 } from "@itinly/shared";
@@ -48,11 +52,13 @@ export const queryKeys = {
   segments: (tripId: string) => ["trips", tripId, "segments"] as const,
   costs: (tripId: string) => ["trips", tripId, "costs"] as const,
   todos: (tripId: string) => ["trips", tripId, "todos"] as const,
+  places: (tripId: string) => ["trips", tripId, "places"] as const,
   shares: (tripId: string) => ["trips", tripId, "shares"] as const,
   shareRules: ["share-rules"] as const,
   shared: (token: string) => ["shared", token] as const,
   gmailLabels: ["gmail", "labels"] as const,
   connections: ["connections"] as const,
+  connectionsAll: ["connections", "all"] as const,
   processedEmails: ["emails", "processed"] as const,
   pushConfig: ["push", "config"] as const,
   pushStatus: (endpoint?: string) =>
@@ -60,6 +66,8 @@ export const queryKeys = {
   emailScanSchedules: ["email-scan-schedules"] as const,
   emailScanRuns: (scheduleId: string) =>
     ["email-scan-schedules", scheduleId, "runs"] as const,
+  tripCalendarSync: (tripId: string) =>
+    ["trips", tripId, "calendar-sync"] as const,
 };
 
 // ─── Trip Queries ─────────────────────────────────────────
@@ -623,6 +631,185 @@ export function useDeleteTodo(tripId: string) {
   });
 }
 
+// ─── Place Queries & Mutations ────────────────────────────
+
+export function usePlaces(tripId: string) {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: queryKeys.places(tripId),
+    queryFn: () => client.listPlaces(tripId),
+  });
+}
+
+export function useCreatePlace(tripId: string) {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreatePlaceInput) =>
+      client.createPlace(tripId, input),
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.places(tripId) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.trip(tripId) });
+      const prevPlaces = queryClient.getQueryData<Place[]>(
+        queryKeys.places(tripId),
+      );
+      const prevTrip = queryClient.getQueryData<Trip>(queryKeys.trip(tripId));
+      // `?.places?.length` — both hops chained, because a trip in the
+      // cache loaded before `places` shipped (or a legacy trip that
+      // never went through migrateTrip) can have an undefined `places`
+      // field. A bare `?.places.length` would throw TypeError and the
+      // mutation's onError would surface "Cannot read properties of
+      // undefined (reading 'length')" via the toast, never reaching
+      // the server.
+      const baseLength =
+        prevPlaces?.length ?? prevTrip?.places?.length ?? 0;
+      const optimistic: Place = {
+        id: `temp_${generateId()}`,
+        sortOrder: baseLength,
+        createdAt: new Date().toISOString(),
+        ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+        ...(input.address?.trim() ? { address: input.address.trim() } : {}),
+        ...(input.url?.trim() ? { url: input.url.trim() } : {}),
+        ...(input.city?.trim() ? { city: input.city.trim() } : {}),
+        ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
+      };
+      if (prevPlaces) {
+        queryClient.setQueryData<Place[]>(queryKeys.places(tripId), [
+          ...prevPlaces,
+          optimistic,
+        ]);
+      }
+      if (prevTrip) {
+        queryClient.setQueryData<Trip>(queryKeys.trip(tripId), {
+          ...prevTrip,
+          places: [...(prevTrip.places ?? []), optimistic],
+        });
+      }
+      return { prevPlaces, prevTrip };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.prevPlaces) {
+        queryClient.setQueryData(queryKeys.places(tripId), ctx.prevPlaces);
+      }
+      if (ctx?.prevTrip) {
+        queryClient.setQueryData(queryKeys.trip(tripId), ctx.prevTrip);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.places(tripId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.trip(tripId) });
+    },
+  });
+}
+
+export function useUpdatePlace(tripId: string) {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { placeId: string } & UpdatePlaceInput) => {
+      const { placeId, ...data } = input;
+      return client.updatePlace(tripId, placeId, data);
+    },
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.places(tripId) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.trip(tripId) });
+      const prevPlaces = queryClient.getQueryData<Place[]>(
+        queryKeys.places(tripId),
+      );
+      const prevTrip = queryClient.getQueryData<Trip>(queryKeys.trip(tripId));
+      const { placeId, ...patch } = input;
+      // Convert null/empty-string to undefined so the cached row stays
+      // free of literal nulls — mirrors the server's clear semantics.
+      const apply = (p: Place): Place => {
+        const next: Place = { ...p };
+        const setOrClear = (
+          key: "name" | "address" | "url" | "city" | "notes",
+          value: string | null | undefined,
+        ) => {
+          if (value === undefined) return;
+          if (value === null || value === "") delete next[key];
+          else next[key] = value.trim();
+        };
+        setOrClear("name", patch.name);
+        setOrClear("address", patch.address);
+        setOrClear("url", patch.url);
+        setOrClear("city", patch.city);
+        setOrClear("notes", patch.notes);
+        if (patch.sortOrder !== undefined) next.sortOrder = patch.sortOrder;
+        return next;
+      };
+      if (prevPlaces) {
+        queryClient.setQueryData<Place[]>(
+          queryKeys.places(tripId),
+          prevPlaces.map((p) => (p.id === placeId ? apply(p) : p)),
+        );
+      }
+      if (prevTrip) {
+        queryClient.setQueryData<Trip>(queryKeys.trip(tripId), {
+          ...prevTrip,
+          places: (prevTrip.places ?? []).map((p) =>
+            p.id === placeId ? apply(p) : p,
+          ),
+        });
+      }
+      return { prevPlaces, prevTrip };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.prevPlaces) {
+        queryClient.setQueryData(queryKeys.places(tripId), ctx.prevPlaces);
+      }
+      if (ctx?.prevTrip) {
+        queryClient.setQueryData(queryKeys.trip(tripId), ctx.prevTrip);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.places(tripId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.trip(tripId) });
+    },
+  });
+}
+
+export function useDeletePlace(tripId: string) {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (placeId: string) => client.deletePlace(tripId, placeId),
+    onMutate: async (placeId) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.places(tripId) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.trip(tripId) });
+      const prevPlaces = queryClient.getQueryData<Place[]>(
+        queryKeys.places(tripId),
+      );
+      const prevTrip = queryClient.getQueryData<Trip>(queryKeys.trip(tripId));
+      if (prevPlaces) {
+        queryClient.setQueryData<Place[]>(
+          queryKeys.places(tripId),
+          prevPlaces.filter((p) => p.id !== placeId),
+        );
+      }
+      if (prevTrip) {
+        queryClient.setQueryData<Trip>(queryKeys.trip(tripId), {
+          ...prevTrip,
+          places: (prevTrip.places ?? []).filter((p) => p.id !== placeId),
+        });
+      }
+      return { prevPlaces, prevTrip };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.prevPlaces) {
+        queryClient.setQueryData(queryKeys.places(tripId), ctx.prevPlaces);
+      }
+      if (ctx?.prevTrip) {
+        queryClient.setQueryData(queryKeys.trip(tripId), ctx.prevTrip);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.places(tripId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.trip(tripId) });
+    },
+  });
+}
+
 // ─── Share Queries & Mutations ────────────────────────────
 
 export function useShares(tripId: string) {
@@ -916,6 +1103,25 @@ export function useConnections(enabled = true) {
   });
 }
 
+/**
+ * Lists ALL the user's OAuth connections, including ones marked
+ * `revoked`. Drives the reconnect banner — when an upstream provider
+ * silently revokes the refresh token (Google's 7-day unverified-app
+ * expiry, user revoked at google.com/security, etc) the cron-tick
+ * executor flips the row to `revoked` and a scheduled scan starts
+ * failing. The banner reads this hook to detect those rows and
+ * surfaces a "Reconnect" CTA so the user doesn't have to discover
+ * the breakage by checking the run history.
+ */
+export function useConnectionsIncludingRevoked(enabled = true) {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: queryKeys.connectionsAll,
+    queryFn: () => client.listConnections({ includeRevoked: true }),
+    enabled,
+  });
+}
+
 export function useScanEmails() {
   const client = useApiClient();
   const queryClient = useQueryClient();
@@ -1086,6 +1292,52 @@ export function useEmailScanRuns(
     queryKey: queryKeys.emailScanRuns(scheduleId),
     queryFn: () => client.listEmailScanRuns(scheduleId),
     enabled: Boolean(scheduleId),
+    ...options,
+  });
+}
+
+export function useRunEmailScanScheduleNow() {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (scheduleId: string) =>
+      client.runEmailScanScheduleNow(scheduleId),
+    onSuccess: (_run, scheduleId) => {
+      // The executor advances the schedule's lastRunAt / nextRunAt and
+      // writes a new run record. New `processed_emails` rows may also
+      // have landed if it found travel content. Invalidate the lot so
+      // the panel reflects every side effect.
+      queryClient.invalidateQueries({ queryKey: queryKeys.emailScanSchedules });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.emailScanRuns(scheduleId),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.processedEmails });
+    },
+  });
+}
+
+// ─── Calendar Sync (per-user) ─────────────────────────────
+
+/**
+ * Per-user calendar-sync state for a single trip. Returns null when
+ * the current user hasn't synced this trip to a calendar yet. The
+ * sync state is the source of truth for the trip's calendar info
+ * — the trip object itself no longer carries `calendarId` or
+ * per-segment `calendarEventId` since those moved server-side to
+ * `trip_user_calendar_syncs`.
+ */
+export function useTripCalendarSync(
+  tripId: string,
+  options?: Omit<
+    UseQueryOptions<TripUserCalendarSync | null>,
+    "queryKey" | "queryFn"
+  >,
+) {
+  const client = useApiClient();
+  return useQuery({
+    queryKey: queryKeys.tripCalendarSync(tripId),
+    queryFn: () => client.getTripCalendarSync(tripId),
+    enabled: Boolean(tripId),
     ...options,
   });
 }

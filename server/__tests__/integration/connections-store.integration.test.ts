@@ -251,6 +251,44 @@ describe("ConnectionsStore (Postgres)", () => {
       expect(byId?.status).toBe("revoked");
     });
 
+    it("listForUserIncludingRevoked surfaces revoked rows for the reconnect banner", async () => {
+      const store = new ConnectionsStore(dbClient, encryptionKey);
+      const active = await store.upsert({
+        id: "c-active",
+        userId: "u-1",
+        provider: "microsoft",
+        capability: "email",
+        accountEmail: "alice@example.com",
+      });
+      const willBeRevoked = await store.upsert({
+        id: "c-revoked",
+        userId: "u-1",
+        provider: "google",
+        capability: "email",
+        accountEmail: "alice@example.com",
+      });
+      await store.markRevoked(willBeRevoked.id, "u-1");
+
+      const all = await store.listForUserIncludingRevoked("u-1");
+      const byProvider = Object.fromEntries(
+        all.map((c) => [c.provider, c.status]),
+      );
+      expect(byProvider).toEqual({ google: "revoked", microsoft: "active" });
+      // Scoping check — another user's revoked row must not leak.
+      const other = await store.upsert({
+        id: "c-other",
+        userId: "u-2",
+        provider: "google",
+        capability: "email",
+        accountEmail: "bob@example.com",
+      });
+      await store.markRevoked(other.id, "u-2");
+      const stillOurs = await store.listForUserIncludingRevoked("u-1");
+      expect(stillOurs.map((c) => c.id).sort()).toEqual(
+        [active.id, willBeRevoked.id].sort(),
+      );
+    });
+
     it("returns false when revoking a row the user doesn't own", async () => {
       const store = new ConnectionsStore(dbClient, encryptionKey);
       const initial = await store.upsert({

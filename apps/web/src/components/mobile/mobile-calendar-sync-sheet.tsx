@@ -65,6 +65,7 @@ function CalendarSyncBody({
     calendarGranted,
     isSynced,
     syncedCount,
+    syncedCalendarId,
     syncedCalendarName,
     syncing,
     calendars,
@@ -87,7 +88,7 @@ function CalendarSyncBody({
       : "pick";
   const [step, setStep] = useState<Step>(initialStep);
   const [selectedCalendarId, setSelectedCalendarId] = useState<string>(
-    trip.calendarId ?? "primary",
+    syncedCalendarId ?? "primary",
   );
   const [deleteChoice, setDeleteChoice] = useState<"delete" | "keep">("delete");
 
@@ -97,7 +98,7 @@ function CalendarSyncBody({
     void loadCalendars().then((cals) => {
       if (cancelled) return;
       const primary = cals.find((c) => c.primary);
-      setSelectedCalendarId(trip.calendarId ?? primary?.id ?? "primary");
+      setSelectedCalendarId(syncedCalendarId ?? primary?.id ?? "primary");
     });
     return () => {
       cancelled = true;
@@ -132,7 +133,7 @@ function CalendarSyncBody({
     // dialog has.
     void loadCalendars(next).then((cals) => {
       const primary = cals.find((c) => c.primary);
-      setSelectedCalendarId(trip.calendarId ?? primary?.id ?? "primary");
+      setSelectedCalendarId(syncedCalendarId ?? primary?.id ?? "primary");
     });
   };
 
@@ -261,11 +262,23 @@ function CalendarSyncBody({
         )}
 
         {step === "info" && (
-          <p className="text-sm text-muted-foreground">
-            {syncedCount} event{syncedCount !== 1 ? "s" : ""} synced
-            {syncedCalendarName ? ` to ${syncedCalendarName}` : ""}. New and
-            edited events are pushed automatically.
-          </p>
+          // Hold the full message until `calendars` resolves — see the
+          // desktop sync-info dialog for the same pattern. Without this,
+          // "N events synced. …" renders first and ~2 s later gets
+          // rewritten with "to <Calendar>" appended once the provider's
+          // calendar list comes back.
+          calendars === null && syncedCalendarId ? (
+            <p className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Loading sync details…
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {syncedCount} event{syncedCount !== 1 ? "s" : ""} synced
+              {syncedCalendarName ? ` to ${syncedCalendarName}` : ""}. New and
+              edited events are pushed automatically.
+            </p>
+          )
         )}
 
         {step === "confirm-remove" && (
