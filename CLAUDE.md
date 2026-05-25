@@ -29,7 +29,7 @@ itinly/
 │   ├── shared/                 # Types, Zod validators, pure utility functions
 │   └── api-client/             # TanStack React Query hooks + typed fetch client
 ├── server/                     # Express 5 backend (REST API, Google OAuth, storage)
-├── .github/workflows/          # CI (ci.yml) + auto version bumping (version-bump.yml)
+├── .github/workflows/          # CI (ci.yml) + release-tag (version-bump.yml)
 ├── turbo.json                  # Task pipeline: build → test, dev, lint, clean
 ├── pnpm-workspace.yaml         # Workspace: apps/*, packages/*, server
 └── tsconfig.base.json          # Shared TS config (ES2022, strict, ESNext modules)
@@ -328,13 +328,11 @@ PII note: bodies can contain confirmation numbers, addresses, names. Treat the J
 
 ## Git Workflow
 
-- **Conventional commits** required — auto version bump runs on merge to `main`:
-  - `feat!:` or `BREAKING CHANGE` → major bump
-  - `feat:` → minor bump
-  - `fix:` → patch bump
+- **Conventional commits** required for PR titles (`feat:`, `fix:`, `chore:`, `docs:`, etc.). Used as the squash-merge commit subject and for changelog readability — there's no longer a workflow that derives the version bump from them.
 - CI runs on all PRs and pushes to `main` (`.github/workflows/ci.yml`).
-- Version bumps are automated — do not manually edit version fields in `package.json`.
-- Add `[skip ci]` to commit messages to bypass version bump workflow.
+- **Versions are bumped manually inside the release PR**, NOT by a workflow. See [`RELEASING.md`](RELEASING.md) for the full procedure. Short version: when you open `preview → main` for a release, title it `feat: release vX.Y.Z` and bump `package.json` + `apps/web/package.json` to that version in the same PR. The Release Tag workflow (`.github/workflows/version-bump.yml`) verifies the bump and pushes a `vX.Y.Z` git tag — but creates no commits and changes no files.
+- Direct-to-main fixes do NOT bump the version. They land at whatever the current version is and roll up into the next release.
+- Add `[skip ci]` to a commit message to bypass Vercel + GitHub Actions (rare; mostly for back-merges or no-op chores).
 
 ---
 

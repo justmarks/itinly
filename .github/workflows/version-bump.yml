@@ -1,18 +1,33 @@
-name: Version Bump
+name: Release Tag
+
+# Tags the commit when a `feat: release vX.Y.Z` lands on main.
+#
+# Versioning policy (2026-05, see RELEASING.md):
+#   - Versions are bumped manually inside the release PR, NOT
+#     automatically by this workflow. The PR title is `feat: release
+#     vX.Y.Z` and the same PR pre-bumps `package.json` +
+#     `apps/web/package.json`.
+#   - Why: the previous auto-bump workflow created a follow-up
+#     `chore: bump version ...` commit AFTER the release squash-merge.
+#     Vercel's `ignoreCommand` skipped that commit, so production
+#     deployed the release content with the *old* package.json
+#     version embedded in `NEXT_PUBLIC_APP_VERSION`. Folding the bump
+#     into the release PR means Vercel deploys a single squash commit
+#     that already carries the right version.
+#
+# This workflow's only job now is to push a `vX.Y.Z` git tag so the
+# "All releases on GitHub" link in the release-notes footer keeps
+# working. The tag is derived from the commit subject, which is
+# expected to match `^feat: release v(\d+\.\d+\.\d+)`.
 
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "package.json"
-      - "apps/web/package.json"
-      - "CHANGELOG.md"
 
 jobs:
-  bump:
+  tag:
     runs-on: ubuntu-latest
-    # Don't run on version bump commits
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    if: startsWith(github.event.head_commit.message, 'feat: release v')
 
     permissions:
       contents: write
@@ -23,67 +38,48 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Node and npm are pre-installed on ubuntu-latest — no setup needed.
-      # This workflow only runs `npm version` + git; avoid pnpm/setup-node to
-      # sidestep their post-run cache validation failures.
-
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Determine version bump type
-        id: bump-type
-        # Pass the commit message via env, NOT `${{ }}` interpolation. GitHub
-        # substitutes `${{ }}` as raw text into the script before bash runs,
-        # so any commit body containing parens, quotes, or backticks (e.g. a
-        # squash-merge body listing "(#123)" PR refs) crashes the step with
-        # "syntax error near unexpected token". Env vars route the value
-        # through `getenv` so bash never re-parses it.
+      - name: Extract version from commit subject
+        id: version
+        # Subject pattern: `feat: release vX.Y.Z` or `feat: release
+        # vX.Y.Z (#NNN)` (squash-merge from a PR). Read the version
+        # back out and tag the commit. Pass the message via env so
+        # parens / quotes in the subject don't crash bash.
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          if echo "$COMMIT_MSG" | grep -qiE "^(feat|feature)(\(.*\))?!:"; then
-            echo "type=major" >> $GITHUB_OUTPUT
-          elif echo "$COMMIT_MSG" | grep -qiE "^(feat|feature)"; then
-            echo "type=minor" >> $GITHUB_OUTPUT
-          else
-            echo "type=patch" >> $GITHUB_OUTPUT
+          VERSION=$(echo "$COMMIT_MSG" | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not extract version from commit subject: $COMMIT_MSG"
+            exit 1
           fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      # apps/web/package.json carries the version surfaced in the UI
-      # (UserMenu dropdown). Mirror the root bump into apps/web only when
-      # this push touched apps/web — that way server-only commits don't
-      # change the visible web version.
-      - name: Detect apps/web changes
-        id: web-changed
+      - name: Verify package.json matches release version
+        # Sanity check: the squash commit should have already bumped
+        # package.json to match the version in the subject. If not,
+        # fail loudly so we don't tag a release whose in-app version
+        # disagrees with its tag.
         run: |
-          if git diff --name-only HEAD~1 HEAD | grep -q '^apps/web/'; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          EXPECTED="${{ steps.version.outputs.version }}"
+          if [ "v$PKG_VERSION" != "$EXPECTED" ]; then
+            echo "::error::package.json version ($PKG_VERSION) doesn't match release tag ($EXPECTED). Update package.json + apps/web/package.json in the release PR before merging."
+            exit 1
           fi
 
-      - name: Bump version
+      - name: Push tag
         run: |
-          npm version ${{ steps.bump-type.outputs.type }} --no-git-tag-version
-          VERSION=$(node -p "require('./package.json').version")
-          git add package.json
-
-          if [ "${{ steps.web-changed.outputs.changed }}" = "true" ]; then
-            (cd apps/web && npm version "$VERSION" --no-git-tag-version --allow-same-version)
-            git add apps/web/package.json
+          TAG="${{ steps.version.outputs.version }}"
+          # Don't fail if the tag already exists (e.g. workflow re-run
+          # on the same commit). Just skip the push.
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists; skipping."
+            exit 0
           fi
-
-          # `[skip ci]` skips the GitHub Actions CI workflow.
-          # `[skip-deploy]` is Railway's documented marker for skipping
-          # an auto-deploy on this commit — the previous `[skip railway]`
-          # phrase looked sensible but is not actually one Railway
-          # honours, so every bump commit was redeploying despite the
-          # marker. Belt-and-suspenders alongside `railway.json`'s
-          # `watchPatterns: ["server/**"]`, which on its own should
-          # already exclude package-only commits once the project has
-          # Config-as-Code enabled and pointed at the file.
-          git commit -m "chore: bump version to $VERSION [skip ci] [skip-deploy]"
-          git tag "v$VERSION"
-          git push && git push --tags
+          git tag "$TAG"
+          git push origin "$TAG"
