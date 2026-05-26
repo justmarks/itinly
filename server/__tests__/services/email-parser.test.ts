@@ -451,6 +451,31 @@ describe("EmailParser.parseEmail", () => {
     expect(result.segments).toHaveLength(1);
     expect(result.segments[0].confidence).toBe("low");
   });
+
+  // Locks in the system prompt's guidance against extracting marketing
+  // mentions and against re-parsing pre-trip reminder emails.
+  //
+  // Backstory: a "Your magical vacation is approaching" Disney email
+  // landed as a parse FAILURE on the user's scan because Claude was
+  // extracting promotional venue mentions (Tiffins Restaurant, Magic
+  // Kingdom, etc.) as dateless segments that all failed Zod. The
+  // updated prompt should (a) tell Claude not to extract marketing
+  // venues and (b) skip pre-trip reminder emails entirely even when
+  // they include a reservation summary header — the user already has
+  // the original booking confirmation parsed.
+  it("system prompt instructs Claude to skip marketing + pre-trip reminders", async () => {
+    mockCreate.mockReturnValueOnce(aiResponse("[]"));
+    await parser.parseEmail({
+      subject: "Your magical vacation is approaching",
+      from: "Disney Destinations <disneydestinations@visit.disneydestinations.com>",
+      body: "Here are some important things to know before your visit.",
+    });
+    const system = mockCreate.mock.calls[0][0].system as string;
+    expect(system).toMatch(/NO MARKETING/i);
+    expect(system).toMatch(/PRE-TRIP REMINDER/i);
+    // Should call out the exact subject-line family we're trying to suppress.
+    expect(system).toMatch(/magical vacation is approaching/i);
+  });
 });
 
 describe("EmailParser deprecation-warning telemetry", () => {
