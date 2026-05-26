@@ -290,12 +290,9 @@ The one place times are zone-aware is **calendar export**. Both Google Calendar 
 
 All changes go through pull requests — no direct commits to main.
 
-Use [conventional commits](https://www.conventionalcommits.org/):
-- `feat:` — new feature (bumps minor version)
-- `fix:` — bug fix (bumps patch version)
-- `feat!:` or `BREAKING CHANGE` — breaking change (bumps major version)
+Use [conventional commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, `docs:`, etc.) — they're used as the squash-merge commit subject for changelog readability.
 
-Version is auto-incremented on merge to main via GitHub Actions. `vercel.json` at the repo root carries an `ignoreCommand` so Vercel skips the no-op build for the auto-generated `chore: bump version ... [skip ci]` commits — only real merges trigger a production deploy.
+**Versions are bumped manually inside the release PR, not automatically.** See [`RELEASING.md`](RELEASING.md) for the full release procedure. In short: when promoting `preview → main`, title the PR `feat: release vX.Y.Z` and bump `package.json` + `apps/web/package.json` to `X.Y.Z` in the same PR. Direct-to-main hotfixes don't bump the version — they roll up into the next release.
 
 ## Roadmap
 

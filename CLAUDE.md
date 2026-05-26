@@ -29,7 +29,7 @@ itinly/
 │   ├── shared/                 # Types, Zod validators, pure utility functions
 │   └── api-client/             # TanStack React Query hooks + typed fetch client
 ├── server/                     # Express 5 backend (REST API, Google OAuth, storage)
-├── .github/workflows/          # CI (ci.yml) + auto version bumping (version-bump.yml)
+├── .github/workflows/          # CI (ci.yml) + release-tag (version-bump.yml)
 ├── turbo.json                  # Task pipeline: build → test, dev, lint, clean
 ├── pnpm-workspace.yaml         # Workspace: apps/*, packages/*, server
 └── tsconfig.base.json          # Shared TS config (ES2022, strict, ESNext modules)
@@ -328,13 +328,11 @@ PII note: bodies can contain confirmation numbers, addresses, names. Treat the J
 
 ## Git Workflow
 
-- **Conventional commits** required — auto version bump runs on merge to `main`:
-  - `feat!:` or `BREAKING CHANGE` → major bump
-  - `feat:` → minor bump
-  - `fix:` → patch bump
+- **Conventional commits** required for PR titles (`feat:`, `fix:`, `chore:`, `docs:`, etc.). Used as the squash-merge commit subject and for changelog readability — there's no longer a workflow that derives the version bump from them.
 - CI runs on all PRs and pushes to `main` (`.github/workflows/ci.yml`).
-- Version bumps are automated — do not manually edit version fields in `package.json`.
-- Add `[skip ci]` to commit messages to bypass version bump workflow.
+- **Versions are bumped manually inside the release PR**, NOT by a workflow. See [`RELEASING.md`](RELEASING.md) for the full procedure. Short version: when you open `preview → main` for a release, title it `feat: release vX.Y.Z` and bump `package.json` + `apps/web/package.json` to that version in the same PR. The Release Tag workflow (`.github/workflows/version-bump.yml`) verifies the bump and pushes a `vX.Y.Z` git tag — but creates no commits and changes no files.
+- Direct-to-main fixes do NOT bump the version. They land at whatever the current version is and roll up into the next release.
+- Add `[skip ci]` to a commit message to bypass Vercel + GitHub Actions (rare; mostly for back-merges or no-op chores).
 
 ---
 
@@ -412,3 +410,42 @@ The mock client lives entirely in the frontend package and has no effect on loca
 **Keep readme in sync:**
 
 The readme should reflect the current reality of the project that's checked into GitHub.
+
+**Cut a new release:**
+
+The full reference lives in [`RELEASING.md`](RELEASING.md); the procedure below is the short version Claude sessions should follow when the user says "cut a release" / "promote preview to main" / "release v1.X.0".
+
+The core idea: **the version bump is part of the release PR's squash commit**, not a follow-up workflow commit. A separate `chore: bump version ...` commit would get skipped by Vercel's `ignoreCommand` and production would deploy the release content with the *previous* version embedded in `NEXT_PUBLIC_APP_VERSION`. Folding the bump into the release PR means Vercel deploys one commit that already carries the right version.
+
+1. **Survey what's shipping.** `git log --oneline origin/main..origin/preview` lists the commits the release covers. Group them by theme (features, fixes, polish).
+
+2. **Pick the version.** Semver, by hand:
+   - **Major (`X.0.0`)** — breaking schema migration that can't be reverted, removed user-facing feature, breaking API change.
+   - **Minor (`X.Y.0`)** — new features, new endpoints, backward-compatible migrations. Most releases are minor.
+   - **Patch (`X.Y.Z`)** — fixes and polish only. Rare as a standalone release; usually rolled into the next minor.
+
+3. **Bump `package.json` + `apps/web/package.json`** to the new version. Both files MUST match — `apps/web/package.json` is what the build embeds into `NEXT_PUBLIC_APP_VERSION` (UserMenu), and the Release Tag workflow's sanity check reads the root `package.json`. Land this commit either directly on `preview` or via a docs PR into `preview` (whatever's quickest).
+
+4. **Write the release notes** in two places (both required):
+   - `release-notes.md` — canonical markdown, add a new `# itinly vX.Y.Z` section at the top above the previous release.
+   - `apps/web/src/app/release-notes/page.tsx` — in-app page, add a new `<section>` at the top of the article mirroring the markdown structure. Use the existing `<Subsection>` and code-tag patterns from prior releases.
+   - Update the README's "future ideas" list if anything moved to shipped.
+
+5. **Open the release PR:**
+   ```bash
+   gh pr create --base main --head preview --title "feat: release vX.Y.Z"
+   ```
+   The title MUST start with `feat: release v` followed by the semver version — the Release Tag workflow keys off this pattern, and the `feat:` prefix is also what makes Vercel treat it as a normal deployable commit.
+
+6. **Squash-merge** (not "Create a merge commit"). The workflow checks the head commit subject; a `Merge pull request #N from ...` subject won't match. Squash-merge produces one commit on `main` titled `feat: release vX.Y.Z (#NNN)` containing code + release notes + the version bump.
+
+7. **What happens after merge:**
+   - Vercel deploys the squash commit. UserMenu reflects the new version. `/release-notes` shows the new section at the top.
+   - Release Tag workflow (`.github/workflows/version-bump.yml`) extracts `vX.Y.Z` from the subject, verifies `package.json` matches, pushes a `vX.Y.Z` git tag. No new commits, no follow-up deploys.
+
+8. **Verify:**
+   - https://itinly.app — UserMenu version chip reads `vX.Y.Z`.
+   - https://itinly.app/release-notes — top section is `vX.Y.Z`.
+   - `git tag -l 'vX.Y.Z'` on `main` returns the tag.
+
+**Direct-to-main hotfixes** do NOT bump the version. Open the PR straight against `main`, squash-merge, and let the fix roll up into the next preview→main release. Main can sit at v1.3.0 for a while as fixes accumulate, then jump straight to v1.4.0 when the next release lands — that's intentional, the version reflects shipped features rather than patch count.
