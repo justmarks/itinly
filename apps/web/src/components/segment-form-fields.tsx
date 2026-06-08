@@ -348,20 +348,49 @@ function AirportInput({
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
-  const results = useMemo(() => (open && value ? searchAirports(value, 8) : []), [open, value]);
+  // Local "query" — what the user has typed into the field. Kept
+  // separate from the form-bound `value` (the committed IATA code)
+  // so the user can type a city name like "TOKYO" to search the
+  // dropdown without polluting form state with non-IATA text — which
+  // the server's Zod validator would reject on save with
+  // "Must be a 3-letter IATA airport code". The form value is only
+  // committed when the query is exactly 3 letters (a candidate IATA
+  // code) or empty (clearing the field).
+  const [query, setQuery] = useState(value);
+
+  // Sync the local query to the form value when the input isn't
+  // focused — covers the editing-a-different-segment case where the
+  // parent loads new data. While focused / open, hold the local
+  // query so a parent re-render doesn't yank the user's typing.
+  useEffect(() => {
+    if (!open) setQuery(value);
+  }, [value, open]);
+
+  const results = useMemo(() => (open && query ? searchAirports(query, 8) : []), [open, query]);
 
   // Reset the highlighted row whenever the result list changes so a stale
   // index doesn't persist across queries.
   useEffect(() => {
     setHighlight(0);
-  }, [results.length, value]);
+  }, [results.length, query]);
 
   const selectByIndex = (idx: number): void => {
     const r = results[idx];
     if (!r) return;
+    setQuery(r.code);
     onChange(r.code);
     onPick?.(r);
     setOpen(false);
+  };
+
+  // If the input was left holding a non-IATA query (e.g. "TOKYO" from a
+  // city search the user didn't finish picking), revert to the last
+  // committed value so the field doesn't show stale junk that won't
+  // save. Empty is allowed — that's a deliberate clear.
+  const revertOnLeave = (): void => {
+    if (query !== "" && !/^[A-Z]{3}$/.test(query)) {
+      setQuery(value);
+    }
   };
 
   return (
@@ -369,17 +398,30 @@ function AirportInput({
       <Input
         id={id}
         placeholder={placeholder}
-        value={value}
+        value={query}
         autoComplete="off"
         onChange={(e) => {
           const next = e.target.value.toUpperCase();
-          onChange(next);
+          setQuery(next);
           setOpen(true);
-          // If the typed value matches a known IATA code we also fire onPick
-          // so the caller can backfill derived fields (e.g. city) without the
-          // user having to click the dropdown.
-          const info = lookupAirport(next);
-          if (info) onPick?.(info);
+          // Commit to form ONLY when the input is empty (a clear) or
+          // exactly 3 letters (a candidate IATA code). Past 3 chars
+          // the user is searching by city name — leave the form value
+          // at whatever was last committed so the Zod validator
+          // doesn't see a half-typed string.
+          if (next === "") {
+            if (value !== "") onChange("");
+            return;
+          }
+          if (/^[A-Z]{3}$/.test(next)) {
+            onChange(next);
+            // If the typed value matches a known IATA code we also
+            // fire onPick so the caller can backfill derived fields
+            // (e.g. city) without the user having to click the
+            // dropdown.
+            const info = lookupAirport(next);
+            if (info) onPick?.(info);
+          }
         }}
         onFocus={() => setOpen(true)}
         // Close synchronously on blur. The dropdown buttons preventDefault on
@@ -387,7 +429,10 @@ function AirportInput({
         // before this fires, and we don't want a stale dropdown lingering
         // after the user has already left the field (it caused the focus
         // trap in the dialog to bounce focus back to the top).
-        onBlur={() => setOpen(false)}
+        onBlur={() => {
+          setOpen(false);
+          revertOnLeave();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Tab") {
             // Tear the dropdown out of the DOM *synchronously* so the
@@ -397,6 +442,7 @@ function AirportInput({
             // Without it the dropdown was occasionally lingering and the
             // dialog's focus trap would bounce focus back to the top.
             if (open) flushSync(() => setOpen(false));
+            revertOnLeave();
             return;
           }
           if (e.key === "ArrowDown") {
