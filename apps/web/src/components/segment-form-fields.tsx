@@ -871,7 +871,9 @@ export function SegmentFormFields({
             isHotel ? "e.g. Hilton Garden Inn" :
             isRestaurant ? "e.g. Lunch @ Araxi" :
             isCarRental ? "e.g. National - Lihue" :
+            isCarService ? "e.g. Airport transfer" :
             isCruise ? "e.g. Symphony of the Seas" :
+            isOtherTransport ? "e.g. Ferry to Capri" :
             "e.g. City Walking Tour"
           }
           value={form.title}
