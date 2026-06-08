@@ -52,6 +52,15 @@ export function CreateTripDialog({
    * picker opens; calling synchronously inside onChange occasionally
    * showed the picker against stale DOM.
    */
+  // Guard so we don't hand off while the user is still typing the year.
+  // Chrome treats a partial year ("0002") as a valid date and fires
+  // onChange on each digit — opening the end picker would steal focus
+  // before they can finish typing 2026.
+  const hasFullYear = (iso: string) => {
+    const year = Number(iso.split("-")[0]);
+    return Number.isFinite(year) && year >= 1000;
+  };
+
   const openEndPicker = () => {
     queueMicrotask(() => {
       const el = endDateRef.current;
@@ -152,13 +161,13 @@ export function CreateTripDialog({
                   const next = e.target.value;
                   setStartDate(next);
                   setOverlapError(null);
-                  // Default the end date to the start so a one-day trip
-                  // can be created from a single picker if the user
-                  // dismisses the end picker without picking again.
-                  if (next && (!endDate || endDate < next)) {
-                    setEndDate(next);
+                  if (next && hasFullYear(next)) {
+                    // Default the end date to the start so a one-day trip
+                    // can be created from a single picker if the user
+                    // dismisses the end picker without picking again.
+                    if (!endDate || endDate < next) setEndDate(next);
+                    openEndPicker();
                   }
-                  if (next) openEndPicker();
                 }}
               />
             </div>

@@ -59,11 +59,20 @@ function CreateTripBody({ onClose }: { onClose: () => void }): React.JSX.Element
   const [overlap, setOverlap] = useState<OverlapInfo[] | null>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
 
+  // Guard so we don't auto-fill or hand off while the user is still
+  // typing the year. Chrome treats a partial year ("0002") as a valid
+  // date and fires onChange on each digit — opening the end picker
+  // would steal focus before they can finish typing 2026.
+  const hasFullYear = (iso: string) => {
+    const year = Number(iso.split("-")[0]);
+    return Number.isFinite(year) && year >= 1000;
+  };
+
   // If the user picks a startDate before any endDate, default endDate
   // to the same day so a quick one-day trip can be created without
   // tapping the second picker. Only fills when endDate is empty.
   useEffect(() => {
-    if (startDate && !endDate) setEndDate(startDate);
+    if (startDate && hasFullYear(startDate) && !endDate) setEndDate(startDate);
   }, [startDate, endDate]);
 
   /**
@@ -175,7 +184,7 @@ function CreateTripBody({ onClose }: { onClose: () => void }): React.JSX.Element
                 const next = e.target.value;
                 setStartDate(next);
                 setOverlap(null);
-                if (next) openEndPicker();
+                if (next && hasFullYear(next)) openEndPicker();
               }}
               className="h-11 w-full rounded-xl border bg-background px-3 text-base text-foreground outline-none focus:border-foreground"
             />
