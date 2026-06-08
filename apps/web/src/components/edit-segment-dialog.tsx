@@ -1,10 +1,17 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useDeleteSegment, useUpdateSegment } from "@itinly/api-client";
-import type { Segment, SegmentType } from "@itinly/shared";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  queryKeys,
+  useDeleteSegment,
+  useUpdateDay,
+  useUpdateSegment,
+} from "@itinly/api-client";
+import type { Segment, SegmentType, Trip } from "@itinly/shared";
 import { toastMutationError } from "@/lib/api-error";
 import { useConfirm } from "@/lib/confirm-dialog";
+import { computeDayCityUpdateFromSegmentForm } from "@/lib/segment-day-city";
 import {
   Dialog,
   DialogContent,
@@ -90,7 +97,9 @@ export function EditSegmentDialog({
   );
 
   const updateSegment = useUpdateSegment(tripId);
+  const updateDay = useUpdateDay(tripId);
   const deleteSegment = useDeleteSegment(tripId);
+  const queryClient = useQueryClient();
   const confirm = useConfirm();
 
   const handleDelete = async () => {
@@ -270,8 +279,21 @@ export function EditSegmentDialog({
       updates.needsReview = false;
     }
 
+    // Snapshot before the mutation so the day-state check reflects the
+    // pre-mutation cache. Same reasoning as add-segment-dialog.tsx.
+    const dayCityUpdate = computeDayCityUpdateFromSegmentForm({
+      trip: queryClient.getQueryData<Trip>(queryKeys.trip(tripId)),
+      form,
+      mode: "edit",
+      targetDate: date,
+      editSegmentId: segment.id,
+    });
+
     onOpenChange(false);
     updateSegment.mutate(updates as Parameters<typeof updateSegment.mutate>[0], {
+      onSuccess: () => {
+        if (dayCityUpdate) updateDay.mutate(dayCityUpdate);
+      },
       onError: toastMutationError("save segment"),
     });
   };

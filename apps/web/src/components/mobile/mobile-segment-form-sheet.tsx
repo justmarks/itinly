@@ -17,11 +17,11 @@ import {
   EMPTY_FORM_STATE,
   SegmentFormFields,
   defaultEndDate,
-  deriveCityFromForm,
   getTypeFlags,
   resolveSegmentTitle,
   type SegmentFormState,
 } from "@/components/segment-form-fields";
+import { computeDayCityUpdateFromSegmentForm } from "@/lib/segment-day-city";
 import { MobileBottomSheet } from "./mobile-bottom-sheet";
 
 export type SegmentFormTarget =
@@ -153,53 +153,19 @@ function SegmentFormBody({
   const queryClient = useQueryClient();
   const confirm = useConfirm();
 
-  /**
-   * Decides whether saving the current form should also push a city
-   * update onto the destination day. Mobile only — desktop has the
-   * `EditableCity` affordance for explicit day-city edits, but mobile
-   * has no manual control, so the form derives the day's city from the
-   * segment as a sensible default.
-   *
-   * Rules:
-   *   - Add: if the destination day has no city yet, set it from the
-   *     new segment.
-   *   - Edit: if the segment will be the only one on the destination
-   *     day after the edit (covers same-day edits where it's already
-   *     the lone segment, and cross-day moves into an empty day),
-   *     update the day's city to match. Doesn't touch days with
-   *     other segments — those have multiple inputs to derive from
-   *     and the user might have set the city deliberately.
-   *
-   * Returns the day mutation payload, or null if no update is needed.
-   */
-  const computeDayCityUpdate = (): {
-    date: string;
-    city: string;
-  } | null => {
-    const trip = queryClient.getQueryData<Trip>(queryKeys.trip(tripId));
-    if (!trip) return null;
-    const targetDate = form.date || target.date;
-    const day = trip.days.find((d) => d.date === targetDate);
-    if (!day) return null;
-    const newCity = deriveCityFromForm(form);
-    if (!newCity) return null;
-
-    if (target.mode === "new") {
-      return day.city ? null : { date: targetDate, city: newCity };
-    }
-
-    // Edit: count other segments on the destination day. For same-day
-    // edits, this is `day.segments.length - 1` (excluding the segment
-    // being edited). For cross-day moves, the segment isn't on this
-    // day yet, so other-count == day.segments.length. Either way,
-    // `willBeOnly` true means after the save, this segment is the
-    // only one on the destination day.
-    const willBeOnly =
-      day.segments.filter((s) => s.id !== target.segment.id).length === 0;
-    if (!willBeOnly) return null;
-    if (day.city === newCity) return null;
-    return { date: targetDate, city: newCity };
-  };
+  // Decide whether saving the current form should also push a city
+  // update onto the destination day. Shared with the desktop add/edit
+  // dialogs via `computeDayCityUpdateFromSegmentForm` so both surfaces
+  // behave identically: an empty day auto-fills from any new segment's
+  // city, and a lone-segment day stays in sync with its segment.
+  const computeDayCityUpdate = () =>
+    computeDayCityUpdateFromSegmentForm({
+      trip: queryClient.getQueryData<Trip>(queryKeys.trip(tripId)),
+      form,
+      mode: target.mode,
+      targetDate: target.date,
+      editSegmentId: target.mode === "edit" ? target.segment.id : undefined,
+    });
 
   const isAdd = target.mode === "new";
   const isEdit = target.mode === "edit";
