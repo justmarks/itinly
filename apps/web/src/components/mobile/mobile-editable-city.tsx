@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useUpdateDay } from "@itinly/api-client";
-import { Check, MapPin, Pencil, X } from "lucide-react";
+import { MapPin, Pencil, X } from "lucide-react";
 import { toastMutationError } from "@/lib/api-error";
 
 /**
@@ -42,6 +42,9 @@ export function MobileEditableCity({
   const [value, setValue] = useState(city);
   const updateDay = useUpdateDay(tripId);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Set synchronously from the Cancel pointerdown handler so the
+  // input's onBlur (which fires immediately after) can skip the save.
+  const cancellingRef = useRef(false);
 
   // Keep local state synced to the prop when the cached city changes
   // (e.g. another tab updates it, or a successful save flushes back).
@@ -87,20 +90,26 @@ export function MobileEditableCity({
               cancel();
             }
           }}
+          onBlur={() => {
+            if (cancellingRef.current) {
+              cancellingRef.current = false;
+              return;
+            }
+            save();
+          }}
           placeholder="e.g. Tokyo"
           className="h-7 w-40 rounded-full border bg-background px-2.5 text-xs text-foreground outline-none focus:border-foreground"
         />
         <button
-          type="submit"
-          aria-label="Save city"
-          disabled={updateDay.isPending}
-          className="flex h-7 w-7 items-center justify-center rounded-full border bg-background text-foreground active:bg-muted/40 disabled:opacity-50"
-        >
-          <Check className="h-3.5 w-3.5" />
-        </button>
-        <button
           type="button"
           onClick={cancel}
+          // Prevent the tap from blurring the input first (which would
+          // trigger save) — pointerdown fires before blur on both
+          // mouse and touch.
+          onPointerDown={(e) => {
+            e.preventDefault();
+            cancellingRef.current = true;
+          }}
           aria-label="Cancel city edit"
           className="flex h-7 w-7 items-center justify-center rounded-full border bg-background text-muted-foreground active:bg-muted/40"
         >
