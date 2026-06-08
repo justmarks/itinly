@@ -27,7 +27,7 @@ on:
 jobs:
   tag:
     runs-on: ubuntu-latest
-    if: startsWith(github.event.head_commit.message, 'feat: release v')
+    if: "startsWith(github.event.head_commit.message, 'feat: release v')"
 
     permissions:
       contents: write
