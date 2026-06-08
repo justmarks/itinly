@@ -693,7 +693,6 @@ function advancedFilledCount(form: SegmentFormState): number {
   if (flags.isFlight) {
     if (form.cabinClass) n += 1;
     if (form.seatNumber) n += 1;
-    if (form.baggageInfo) n += 1;
   } else if (flags.isTrain) {
     if (form.coach) n += 1;
     if (form.seatNumber) n += 1;
@@ -1425,37 +1424,26 @@ export function SegmentFormFields({
 
         {/* Flight-specific advanced fields */}
         {isFlight && (
-          <>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor={`${idPrefix}-cabin`}>Cabin class</Label>
-                <Input
-                  id={`${idPrefix}-cabin`}
-                  placeholder="e.g. Economy, Business"
-                  value={form.cabinClass}
-                  onChange={(e) => onChange({ cabinClass: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${idPrefix}-seats`}>Seat(s)</Label>
-                <Input
-                  id={`${idPrefix}-seats`}
-                  placeholder="e.g. 12A, 12B"
-                  value={form.seatNumber}
-                  onChange={(e) => onChange({ seatNumber: e.target.value })}
-                />
-              </div>
-            </div>
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor={`${idPrefix}-baggage`}>Baggage info</Label>
+              <Label htmlFor={`${idPrefix}-cabin`}>Cabin class</Label>
               <Input
-                id={`${idPrefix}-baggage`}
-                placeholder="e.g. 1 checked bag included"
-                value={form.baggageInfo}
-                onChange={(e) => onChange({ baggageInfo: e.target.value })}
+                id={`${idPrefix}-cabin`}
+                placeholder="e.g. Economy, Business"
+                value={form.cabinClass}
+                onChange={(e) => onChange({ cabinClass: e.target.value })}
               />
             </div>
-          </>
+            <div className="space-y-2">
+              <Label htmlFor={`${idPrefix}-seats`}>Seat(s)</Label>
+              <Input
+                id={`${idPrefix}-seats`}
+                placeholder="e.g. 12A, 12B"
+                value={form.seatNumber}
+                onChange={(e) => onChange({ seatNumber: e.target.value })}
+              />
+            </div>
+          </div>
         )}
 
         {/* Train-specific advanced fields */}
