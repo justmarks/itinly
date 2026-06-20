@@ -380,7 +380,7 @@ export function MobileCarouselView({
         className="flex flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden no-scrollbar overscroll-x-contain"
       >
         {/* All-overview page */}
-        <div className="flex h-full w-full shrink-0 snap-start snap-always flex-col overflow-y-auto">
+        <div className="flex h-full w-full shrink-0 snap-start snap-always flex-col overflow-y-auto overscroll-y-none">
           <MobileDaysList
             days={days}
             onSelectSegment={handleSelectSegment}
@@ -401,7 +401,7 @@ export function MobileCarouselView({
           return (
             <div
               key={day.date}
-              className="flex h-full w-full shrink-0 snap-start snap-always flex-col overflow-y-auto"
+              className="flex h-full w-full shrink-0 snap-start snap-always flex-col overflow-y-auto overscroll-y-none"
             >
               <div className="flex flex-col gap-2.5 px-4 py-4">
                 <div className="flex items-baseline justify-between gap-2 pb-1">
