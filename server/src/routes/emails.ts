@@ -1550,38 +1550,75 @@ export function createEmailRoutes(options: EmailRoutesOptions): Router {
 
       console.log(`${scanPrefix} Parsing ${newEmails.length} new email(s) (${rawEmails.length} total from mailbox, ${pendingResults.length} pending)`);
 
-      for (let i = 0; i < newEmails.length; i++) {
+      // Parse emails in concurrent batches of 3. This cuts wall-clock
+      // time roughly 3× vs. the old sequential loop (12 emails: ~54s →
+      // ~18s) while staying well within Anthropic's RPM limits. The
+      // batch size is conservative — raise it if throughput is still a
+      // bottleneck, but 3 is safe even on Anthropic's lowest tier.
+      const PARSE_CONCURRENCY = 3;
+      let completedCount = 0;
+      let scanHalted = false;
+
+      for (
+        let batchStart = 0;
+        batchStart < newEmails.length && !scanHalted;
+        batchStart += PARSE_CONCURRENCY
+      ) {
         if (clientClosed) {
-          console.log(`${scanPrefix} Client disconnected mid-scan — stopping after ${i}/${newEmails.length}`);
+          console.log(`${scanPrefix} Client disconnected mid-scan — stopping after ${completedCount}/${newEmails.length}`);
           break;
         }
-        const email = newEmails[i];
-        emit("progress", {
-          parsed: i,
-          total: newEmails.length,
-          subject: email.subject,
-          from: email.from,
-        });
-        try {
-          console.log(`${scanPrefix} Parsing "${email.subject}" from ${email.from} (body: ${email.bodyText.length} chars)`);
-          const { segments, invalidCount, rawItemCount } = await parser.parseEmail({
-            subject: email.subject,
-            from: email.from,
-            body: email.bodyText,
-            receivedAt: email.receivedAt,
-          });
 
-          const hasTravel = segments.length > 0;
-          const validationFailedEverything =
-            !hasTravel && rawItemCount > 0 && invalidCount > 0;
+        const batch = newEmails.slice(batchStart, batchStart + PARSE_CONCURRENCY);
+        console.log(
+          `${scanPrefix} Parsing batch ${Math.floor(batchStart / PARSE_CONCURRENCY) + 1}/${Math.ceil(newEmails.length / PARSE_CONCURRENCY)} (${batch.length} email(s) in parallel)`,
+        );
 
-          if (hasTravel) {
-            console.log(
-              `${scanPrefix} Parsed "${email.subject}" → ${segments.length} segment(s)${invalidCount > 0 ? ` (${invalidCount} invalid item(s) dropped)` : ""}`,
-            );
-            if (invalidCount > 0) {
+        const batchSettled = await Promise.allSettled(
+          batch.map((email) =>
+            parser.parseEmail({
+              subject: email.subject,
+              from: email.from,
+              body: email.bodyText,
+              receivedAt: email.receivedAt,
+            }),
+          ),
+        );
+
+        for (let j = 0; j < batch.length && !scanHalted; j++) {
+          const email = batch[j];
+          const outcome = batchSettled[j];
+          completedCount++;
+
+          if (outcome.status === "fulfilled") {
+            const { segments, invalidCount, rawItemCount } = outcome.value;
+
+            const hasTravel = segments.length > 0;
+            const validationFailedEverything =
+              !hasTravel && rawItemCount > 0 && invalidCount > 0;
+
+            if (hasTravel) {
+              console.log(
+                `${scanPrefix} Parsed "${email.subject}" → ${segments.length} segment(s)${invalidCount > 0 ? ` (${invalidCount} invalid item(s) dropped)` : ""}`,
+              );
+              if (invalidCount > 0) {
+                recordParseFailure({
+                  outcome: "parsed_with_invalid",
+                  source: "gmail_scan",
+                  subject: email.subject,
+                  from: email.from,
+                  receivedAt: email.receivedAt,
+                  bodyLength: email.bodyText.length,
+                  rawItemCount,
+                  invalidCount,
+                });
+              }
+            } else if (validationFailedEverything) {
+              console.warn(
+                `${scanPrefix} Parse failure for "${email.subject}" — Claude returned ${rawItemCount} item(s) but all ${invalidCount} failed Zod validation. Marking as "failed" so it will be retried on the next scan.`,
+              );
               recordParseFailure({
-                outcome: "parsed_with_invalid",
+                outcome: "failed",
                 source: "gmail_scan",
                 subject: email.subject,
                 from: email.from,
@@ -1590,215 +1627,212 @@ export function createEmailRoutes(options: EmailRoutesOptions): Router {
                 rawItemCount,
                 invalidCount,
               });
+            } else {
+              // No-travel-content is an expected outcome — don't fire Sentry
+              // telemetry for it (per PR #276). Still emit the local log line
+              // so operators can grep Railway when triaging a specific scan.
+              console.log(`${scanPrefix} Skipped "${email.subject}" (no travel content detected)`);
             }
-          } else if (validationFailedEverything) {
-            console.warn(
-              `${scanPrefix} Parse failure for "${email.subject}" — Claude returned ${rawItemCount} item(s) but all ${invalidCount} failed Zod validation. Marking as "failed" so it will be retried on the next scan.`,
-            );
-            recordParseFailure({
-              outcome: "failed",
-              source: "gmail_scan",
+
+            const matchedSegments = segments.map((seg) => {
+              const matchingTrip = pickMatchingTrip(seg.date, tripId, trips, tripsById);
+              if (!matchingTrip) {
+                return { ...seg, match: { status: "new" as const } };
+              }
+              const match = matchParsedAgainstTrip(seg, matchingTrip);
+              return { ...seg, suggestedTripId: matchingTrip.id, match };
+            });
+
+            const scanResult: EmailScanResult = {
+              emailId: email.id,
               subject: email.subject,
               from: email.from,
               receivedAt: email.receivedAt,
-              bodyLength: email.bodyText.length,
-              rawItemCount,
-              invalidCount,
+              parsedSegments: matchedSegments,
+              parseStatus: hasTravel
+                ? "success"
+                : validationFailedEverything
+                  ? "failed"
+                  : "no_travel_content",
+              ...(validationFailedEverything
+                ? {
+                    error: `Claude returned ${rawItemCount} item(s) but none passed schema validation. See server logs for details.`,
+                  }
+                : {}),
+            };
+
+            if (hasTravel) {
+              newResults.push(scanResult);
+            } else if (validationFailedEverything) {
+              newResults.push(scanResult);
+            } else {
+              noTravelResults.push(scanResult);
+            }
+
+            const idx = processedEmails.findIndex((p) => p.gmailMessageId === email.id);
+            if (idx !== -1) processedEmails.splice(idx, 1);
+
+            newProcessedEmails.push({
+              gmailMessageId: email.id,
+              gmailThreadId: email.threadId,
+              subject: email.subject,
+              fromAddress: email.from,
+              receivedAt: email.receivedAt,
+              parsedType: hasTravel ? segments[0].type : undefined,
+              parseStatus: hasTravel
+                ? "parsed"
+                : validationFailedEverything
+                  ? "failed"
+                  : "skipped",
+              rawParseResult: hasTravel ? scanResult : undefined,
+              // Mirror the non-streaming variant: stash subject/from/body
+              // on validation-failed-everything so the failures-debug
+              // endpoint can serve it. See route at the top of this file
+              // for the rationale.
+              ...(validationFailedEverything
+                ? {
+                    parseError: `Claude returned ${rawItemCount} item(s) but none passed schema validation (${invalidCount} invalid).`,
+                    rawEmail: {
+                      subject: email.subject,
+                      from: email.from,
+                      body: email.bodyText,
+                      receivedAt: email.receivedAt,
+                    },
+                  }
+                : {}),
+              provider: emailProvider,
+              accountEmail,
+              createdAt: new Date().toISOString(),
             });
           } else {
-            // No-travel-content is an expected outcome — don't fire Sentry
-            // telemetry for it (per PR #276). Still emit the local log line
-            // so operators can grep Railway when triaging a specific scan.
-            console.log(`${scanPrefix} Skipped "${email.subject}" (no travel content detected)`);
-          }
+            const err: unknown = outcome.reason;
+            const errMsg = err instanceof Error ? err.message : String(err);
+            const errObj = err as Record<string, unknown>;
+            const errStatus = typeof errObj.status === "number" ? errObj.status : 0;
+            const errType = typeof errObj.type === "string" ? errObj.type : "";
+            const isBillingError =
+              errMsg.includes("credit balance") ||
+              errMsg.includes("billing") ||
+              errMsg.includes("too low") ||
+              (errStatus === 400 && errMsg.includes("credit"));
+            const isAuthError =
+              errStatus === 401 ||
+              errMsg.includes("authentication") ||
+              errMsg.includes("invalid x-api-key") ||
+              errMsg.includes("api_key");
+            // 429 rate_limit_error is treated like overloaded: same
+            // "transient, try again later" UX, same halt-and-return-
+            // partial-results behaviour. Anthropic's SDK does its own
+            // internal retries for 429 before throwing, so if we see
+            // one here the user is genuinely over a TPM/RPM budget for
+            // the moment and hammering more email parses just digs
+            // the hole deeper.
+            const isOverloadedError =
+              errStatus === 529 ||
+              errStatus === 503 ||
+              errStatus === 429 ||
+              errType === "overloaded_error" ||
+              errType === "rate_limit_error" ||
+              errMsg.includes("overloaded") ||
+              errMsg.includes("Overloaded") ||
+              errMsg.includes("rate_limit") ||
+              errMsg.includes("rate limit");
 
-          const matchedSegments = segments.map((seg) => {
-            const matchingTrip = pickMatchingTrip(seg.date, tripId, trips, tripsById);
-            if (!matchingTrip) {
-              return { ...seg, match: { status: "new" as const } };
+            if (isOverloadedError) {
+              console.warn(
+                `${scanPrefix} AI service overloaded — halting scan. Email "${email.subject}" will be retried on next scan.`,
+              );
+            } else {
+              console.error(`${scanPrefix} Failed to parse "${email.subject}" (${email.id}):`, err);
+              if (!isBillingError && !isAuthError) {
+                recordParseFailure({
+                  outcome: "exception",
+                  source: "gmail_scan",
+                  subject: email.subject,
+                  from: email.from,
+                  receivedAt: email.receivedAt,
+                  bodyLength: email.bodyText.length,
+                  errorMessage: errMsg,
+                });
+                reportError(err, {
+                  emailId: email.id,
+                  source: "gmail_scan",
+                });
+              }
             }
-            const match = matchParsedAgainstTrip(seg, matchingTrip);
-            return { ...seg, suggestedTripId: matchingTrip.id, match };
-          });
 
-          const scanResult: EmailScanResult = {
-            emailId: email.id,
-            subject: email.subject,
-            from: email.from,
-            receivedAt: email.receivedAt,
-            parsedSegments: matchedSegments,
-            parseStatus: hasTravel
-              ? "success"
-              : validationFailedEverything
-                ? "failed"
-                : "no_travel_content",
-            ...(validationFailedEverything
-              ? {
-                  error: `Claude returned ${rawItemCount} item(s) but none passed schema validation. See server logs for details.`,
-                }
-              : {}),
-          };
+            if (isBillingError || isAuthError || isOverloadedError) {
+              const code = isBillingError
+                ? "ANTHROPIC_BILLING"
+                : isAuthError
+                  ? "ANTHROPIC_AUTH"
+                  : "ANTHROPIC_OVERLOADED";
+              const userMessage = isBillingError
+                ? "The AI service (Anthropic) requires additional credits. Please check your billing at console.anthropic.com."
+                : isAuthError
+                  ? "The AI service API key is invalid or expired. Please update ANTHROPIC_API_KEY."
+                  : "The AI service is temporarily overloaded. Please try scanning again in a few minutes.";
+              const httpStatus = isBillingError ? 402 : isAuthError ? 401 : 503;
 
-          if (hasTravel) {
-            newResults.push(scanResult);
-          } else if (validationFailedEverything) {
-            newResults.push(scanResult);
-          } else {
-            noTravelResults.push(scanResult);
-          }
+              if (newProcessedEmails.length > 0) {
+                await storage.saveProcessedEmails([...processedEmails, ...newProcessedEmails]);
+              }
 
-          const idx = processedEmails.findIndex((p) => p.gmailMessageId === email.id);
-          if (idx !== -1) processedEmails.splice(idx, 1);
+              const allResults = [...pendingResults, ...newResults];
+              emit("error", {
+                status: httpStatus,
+                error: userMessage,
+                code,
+                emailsFound: newEmails.length,
+                results: allResults.length > 0 ? allResults : undefined,
+              });
+              scanHalted = true;
+              continue;
+            }
 
-          newProcessedEmails.push({
-            gmailMessageId: email.id,
-            gmailThreadId: email.threadId,
-            subject: email.subject,
-            fromAddress: email.from,
-            receivedAt: email.receivedAt,
-            parsedType: hasTravel ? segments[0].type : undefined,
-            parseStatus: hasTravel
-              ? "parsed"
-              : validationFailedEverything
-                ? "failed"
-                : "skipped",
-            rawParseResult: hasTravel ? scanResult : undefined,
-            // Mirror the non-streaming variant: stash subject/from/body
-            // on validation-failed-everything so the failures-debug
-            // endpoint can serve it. See route at the top of this file
-            // for the rationale.
-            ...(validationFailedEverything
-              ? {
-                  parseError: `Claude returned ${rawItemCount} item(s) but none passed schema validation (${invalidCount} invalid).`,
-                  rawEmail: {
-                    subject: email.subject,
-                    from: email.from,
-                    body: email.bodyText,
-                    receivedAt: email.receivedAt,
-                  },
-                }
-              : {}),
-            provider: emailProvider,
-            accountEmail,
-            createdAt: new Date().toISOString(),
-          });
-        } catch (err: unknown) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          const errObj = err as Record<string, unknown>;
-          const errStatus = typeof errObj.status === "number" ? errObj.status : 0;
-          const errType = typeof errObj.type === "string" ? errObj.type : "";
-          const isBillingError =
-            errMsg.includes("credit balance") ||
-            errMsg.includes("billing") ||
-            errMsg.includes("too low") ||
-            (errStatus === 400 && errMsg.includes("credit"));
-          const isAuthError =
-            errStatus === 401 ||
-            errMsg.includes("authentication") ||
-            errMsg.includes("invalid x-api-key") ||
-            errMsg.includes("api_key");
-          // 429 rate_limit_error is treated like overloaded: same
-          // "transient, try again later" UX, same halt-and-return-
-          // partial-results behaviour. Anthropic's SDK does its own
-          // internal retries for 429 before throwing, so if we see
-          // one here the user is genuinely over a TPM/RPM budget for
-          // the moment and hammering more email parses just digs
-          // the hole deeper.
-          const isOverloadedError =
-            errStatus === 529 ||
-            errStatus === 503 ||
-            errStatus === 429 ||
-            errType === "overloaded_error" ||
-            errType === "rate_limit_error" ||
-            errMsg.includes("overloaded") ||
-            errMsg.includes("Overloaded") ||
-            errMsg.includes("rate_limit") ||
-            errMsg.includes("rate limit");
-
-          if (isOverloadedError) {
-            console.warn(
-              `${scanPrefix} AI service overloaded — halting scan. Email "${email.subject}" will be retried on next scan.`,
-            );
-          } else {
-            console.error(`${scanPrefix} Failed to parse "${email.subject}" (${email.id}):`, err);
-            if (!isBillingError && !isAuthError) {
-              recordParseFailure({
-                outcome: "exception",
-                source: "gmail_scan",
+            // Per-email exception: surface to the UI AND persist as
+            // "failed" with the raw body so the failures-debug endpoint
+            // can serve enough to repro the issue offline. See the
+            // non-streaming variant for the full rationale.
+            newResults.push({
+              emailId: email.id,
+              subject: email.subject,
+              from: email.from,
+              receivedAt: email.receivedAt,
+              parsedSegments: [],
+              parseStatus: "failed",
+              error: errMsg,
+            });
+            newProcessedEmails.push({
+              gmailMessageId: email.id,
+              gmailThreadId: email.threadId,
+              subject: email.subject,
+              fromAddress: email.from,
+              receivedAt: email.receivedAt,
+              parseStatus: "failed",
+              parseError: errMsg,
+              rawEmail: {
                 subject: email.subject,
                 from: email.from,
+                body: email.bodyText,
                 receivedAt: email.receivedAt,
-                bodyLength: email.bodyText.length,
-                errorMessage: errMsg,
-              });
-              reportError(err, {
-                emailId: email.id,
-                source: "gmail_scan",
-              });
-            }
-          }
-
-          if (isBillingError || isAuthError || isOverloadedError) {
-            const code = isBillingError
-              ? "ANTHROPIC_BILLING"
-              : isAuthError
-                ? "ANTHROPIC_AUTH"
-                : "ANTHROPIC_OVERLOADED";
-            const userMessage = isBillingError
-              ? "The AI service (Anthropic) requires additional credits. Please check your billing at console.anthropic.com."
-              : isAuthError
-                ? "The AI service API key is invalid or expired. Please update ANTHROPIC_API_KEY."
-                : "The AI service is temporarily overloaded. Please try scanning again in a few minutes.";
-            const httpStatus = isBillingError ? 402 : isAuthError ? 401 : 503;
-
-            if (newProcessedEmails.length > 0) {
-              await storage.saveProcessedEmails([...processedEmails, ...newProcessedEmails]);
-            }
-
-            const allResults = [...pendingResults, ...newResults];
-            emit("error", {
-              status: httpStatus,
-              error: userMessage,
-              code,
-              emailsFound: newEmails.length,
-              results: allResults.length > 0 ? allResults : undefined,
+              },
+              provider: emailProvider,
+              accountEmail,
+              createdAt: new Date().toISOString(),
             });
-            return;
           }
 
-          // Per-email exception: surface to the UI AND persist as
-          // "failed" with the raw body so the failures-debug endpoint
-          // can serve enough to repro the issue offline. See the
-          // non-streaming variant for the full rationale.
-          newResults.push({
-            emailId: email.id,
+          emit("progress", {
+            parsed: completedCount,
+            total: newEmails.length,
             subject: email.subject,
             from: email.from,
-            receivedAt: email.receivedAt,
-            parsedSegments: [],
-            parseStatus: "failed",
-            error: errMsg,
-          });
-          newProcessedEmails.push({
-            gmailMessageId: email.id,
-            gmailThreadId: email.threadId,
-            subject: email.subject,
-            fromAddress: email.from,
-            receivedAt: email.receivedAt,
-            parseStatus: "failed",
-            parseError: errMsg,
-            rawEmail: {
-              subject: email.subject,
-              from: email.from,
-              body: email.bodyText,
-              receivedAt: email.receivedAt,
-            },
-            provider: emailProvider,
-            accountEmail,
-            createdAt: new Date().toISOString(),
           });
         }
       }
+
+      if (scanHalted) return;
 
       // Final progress tick so the UI shows "Parsed N of N" before
       // flipping to the review screen — without this the last email's
