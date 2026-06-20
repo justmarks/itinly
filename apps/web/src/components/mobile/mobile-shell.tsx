@@ -45,13 +45,13 @@ export function MobileFrame({
           // and large phones in landscape — touch-primary — see the
           // mobile shell fill the viewport instead of getting framed as a
           // 430px column with empty space on either side.
-          "relative mx-auto flex min-h-screen flex-col overflow-hidden bg-background",
-          "pointer-fine:max-w-[430px] pointer-fine:shadow-xl pointer-fine:md:my-4 pointer-fine:md:min-h-[calc(100vh-2rem)] pointer-fine:md:rounded-3xl pointer-fine:md:border",
+          "relative mx-auto flex h-dvh flex-col overflow-hidden bg-background",
+          "pointer-fine:max-w-[430px] pointer-fine:shadow-xl pointer-fine:md:my-4 pointer-fine:md:h-[calc(100vh-2rem)] pointer-fine:md:rounded-3xl pointer-fine:md:border",
           // In landscape on a phone-sized device, drop the desktop-preview
           // chrome since a rotated phone uses the full viewport and the
           // framing reads as wasted space.
           widenInLandscape &&
-            "pointer-fine:landscape:max-w-none pointer-fine:landscape:shadow-none pointer-fine:md:landscape:my-0 pointer-fine:md:landscape:rounded-none pointer-fine:md:landscape:border-0 pointer-fine:md:landscape:min-h-screen",
+            "pointer-fine:landscape:max-w-none pointer-fine:landscape:shadow-none pointer-fine:md:landscape:my-0 pointer-fine:md:landscape:rounded-none pointer-fine:md:landscape:border-0 pointer-fine:md:landscape:h-screen",
           className,
         )}
       >
