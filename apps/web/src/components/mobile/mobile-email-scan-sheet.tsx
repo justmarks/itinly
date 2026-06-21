@@ -1020,17 +1020,15 @@ function ScanBody({
           <button
             type="button"
             onClick={handleApply}
-            // Disable when nothing eligible to send (selected + non-skip
-            // + has trip target) — `applyableCount` reflects the same
-            // filter `handleApply` uses to build the request, so the
-            // button can't be tapped into a no-op call.
-            disabled={applyableCount === 0 || isApplying}
+            disabled={isApplying}
             className="inline-flex h-11 flex-[2] items-center justify-center gap-1.5 rounded-full bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
           >
             {isApplying && (
               <Loader2 className="h-4 w-4 animate-spin" />
             )}
-            Add {applyableCount} segment{applyableCount === 1 ? "" : "s"}
+            {applyableCount === 0
+              ? "Skip all"
+              : `Add ${applyableCount} segment${applyableCount === 1 ? "" : "s"}`}
           </button>
         </Footer>
       </>
