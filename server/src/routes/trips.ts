@@ -18,6 +18,7 @@ import {
   applyCruisePortsToDayCities,
   primaryLocationFor,
   formatTripDateRange,
+  autoTransitionStatus,
   CURRENT_TRIP_SCHEMA_VERSION,
   type Place,
   type Trip,
@@ -189,6 +190,23 @@ export function createTripRoutes(options: TripRoutesOptions): Router {
         shareRegistry,
         resolveOwnerStorage,
       });
+
+      const today = new Date().toISOString().split("T")[0];
+
+      // Lazily persist any date-driven status transitions. Fire-and-forget;
+      // failures are non-fatal — next request will retry the same check.
+      const autoTransitions = ownedTrips.filter((t) => {
+        const derived = autoTransitionStatus(t, today);
+        if (derived === t.status) return false;
+        t.status = derived;
+        t.updatedAt = new Date().toISOString();
+        return true;
+      });
+      if (autoTransitions.length > 0) {
+        void Promise.all(autoTransitions.map((t) => storage.saveTrip(t))).catch(
+          (err) => console.warn("[trips] auto-transition save failed:", err),
+        );
+      }
 
       const ownedSummaries = ownedTrips.map((t) => {
         const primary = primaryLocationFor(t);
@@ -542,7 +560,19 @@ export function createTripRoutes(options: TripRoutesOptions): Router {
   router.get("/:tripId", async (req: Request, res: Response) => {
     const access = await accessTrip(req, req.params.tripId as string, "view");
     if (!access.ok) return denyAccess(res, access);
-    res.json(access.trip);
+    const { trip, storage } = access;
+
+    const today = new Date().toISOString().split("T")[0];
+    const derived = autoTransitionStatus(trip, today);
+    if (derived !== trip.status) {
+      trip.status = derived;
+      trip.updatedAt = new Date().toISOString();
+      void storage.saveTrip(trip).catch((err) =>
+        console.warn("[trips] auto-transition save failed:", err),
+      );
+    }
+
+    res.json(trip);
     // Fire-and-forget activity tracking. Don't await before responding —
     // the contributor's load shouldn't pay for the throttle write or
     // owner push. Errors inside record* are swallowed and logged.

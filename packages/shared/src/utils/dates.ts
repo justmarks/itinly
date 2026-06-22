@@ -1,3 +1,5 @@
+import type { TripStatus } from "../types/trip";
+
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 // Anchor every YYYY-MM-DD → Date parse at UTC midnight (`T00:00:00Z`)
@@ -78,6 +80,24 @@ export function findOverlappingTrips<T extends DateRange & { id: string; title: 
     (trip) =>
       trip.id !== excludeTripId && dateRangesOverlap(trip, range),
   );
+}
+
+/**
+ * Derive the correct trip status purely from its date range vs today.
+ * Cancelled trips are never auto-transitioned — that state is an explicit
+ * user choice that overrides date logic. All other statuses follow:
+ *   today > endDate  →  "completed"
+ *   today ≥ startDate  →  "active"
+ *   today < startDate  →  "planning"
+ */
+export function autoTransitionStatus(
+  trip: { status: TripStatus; startDate: string; endDate: string },
+  today: string,
+): TripStatus {
+  if (trip.status === "cancelled") return "cancelled";
+  if (today > trip.endDate) return "completed";
+  if (today >= trip.startDate) return "active";
+  return "planning";
 }
 
 /**
