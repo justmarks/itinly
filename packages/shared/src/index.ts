@@ -115,6 +115,7 @@ export {
   dateRangesOverlap,
   findOverlappingTrips,
   formatTripDateRange,
+  autoTransitionStatus,
 } from "./utils/dates";
 export type { DateRange } from "./utils/dates";
 export {
