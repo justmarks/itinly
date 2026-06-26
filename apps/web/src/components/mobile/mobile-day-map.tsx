@@ -76,9 +76,11 @@ function rawPinsForTrip(trip: Trip): RawPin[] {
 function DayMapInner({
   rawPins,
   activeDate,
+  fallbackCity,
 }: {
   rawPins: RawPin[];
   activeDate: string | undefined;
+  fallbackCity?: string;
 }) {
   const map = useMap();
   const geocodingLib = useMapsLibrary("geocoding");
@@ -134,13 +136,29 @@ function DayMapInner({
     map.fitBounds(bounds, 60);
   }, [map, visiblePins]);
 
+  // When geocoding finishes with no visible pins for this day/view, pan to
+  // the day's city so the map shows a relevant location instead of the
+  // world-level defaultCenter.
+  useEffect(() => {
+    if (!map || !geocodingLib || !fallbackCity) return;
+    if (!done || visiblePins.length > 0) return;
+    const geocoder = new geocodingLib.Geocoder();
+    geocoder.geocode({ address: fallbackCity }, (results, status) => {
+      if (status === "OK" && results?.[0]) {
+        const { lat, lng } = results[0].geometry.location;
+        map.panTo({ lat: lat(), lng: lng() });
+        map.setZoom(10);
+      }
+    });
+  }, [map, geocodingLib, fallbackCity, done, visiblePins.length]);
+
   const pinColors = useCategoryPinColors();
 
   return (
     <Map
       mapId={process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID ?? "DEMO_MAP_ID"}
-      defaultCenter={{ lat: 35.6762, lng: 139.6503 }}
-      defaultZoom={5}
+      defaultCenter={{ lat: 20, lng: 0 }}
+      defaultZoom={2}
       style={{ width: "100%", height: "100%" }}
       gestureHandling="greedy"
       disableDefaultUI={true}
@@ -187,6 +205,15 @@ export function MobileDayMap({
     [rawPins, activeDate],
   );
 
+  // City to pan to when there are no activity pins on the current view —
+  // avoids showing the world-level defaultCenter after geocoding completes.
+  const fallbackCity = useMemo(() => {
+    if (activeDate) {
+      return trip.days.find((d) => d.date === activeDate)?.city;
+    }
+    return trip.days[0]?.city;
+  }, [trip, activeDate]);
+
   // Sits above the map's gestureHandling layer. The bg-white/90
   // contrast keeps the icon readable over both light and dark map
   // tiles. Right-aligned so the chevron-pagination row at the bottom
@@ -221,10 +248,8 @@ export function MobileDayMap({
     );
   }
 
-  // No geocodable segments anywhere on the trip → without this the map
-  // falls back to its `defaultCenter` (Tokyo) and renders a misleading
-  // Japan view for a US-only trip. Mirror the desktop `MapView` empty
-  // state instead of spinning up the map.
+  // No geocodable segments anywhere on the trip — skip the map and show
+  // a placeholder so we're not paying for API load with nothing to display.
   if (rawPins.length === 0) {
     return (
       <div
@@ -244,7 +269,11 @@ export function MobileDayMap({
   return (
     <div style={{ height }} className="relative">
       <APIProvider apiKey={apiKey}>
-        <DayMapInner rawPins={rawPins} activeDate={activeDate} />
+        <DayMapInner
+          rawPins={rawPins}
+          activeDate={activeDate}
+          fallbackCity={fallbackCity}
+        />
       </APIProvider>
       {expandButton}
     </div>
