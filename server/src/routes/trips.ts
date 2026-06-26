@@ -1669,11 +1669,10 @@ export function createTripRoutes(options: TripRoutesOptions): Router {
       const { generateTripPdf } = await import("../utils/pdf-generator");
       const { trip } = access;
 
-      const excludeCosts = req.query.exclude?.toString().includes("costs");
       const excludeTodos = req.query.exclude?.toString().includes("todos");
 
       const pdfBuffer = await generateTripPdf(trip, {
-        includeCosts: !excludeCosts,
+        includeCosts: false,
         includeTodos: !excludeTodos,
       });
 
