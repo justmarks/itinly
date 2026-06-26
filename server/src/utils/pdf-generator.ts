@@ -313,9 +313,10 @@ export function generateTripPdf(
         ensureSpace(doc, 20);
         const typeLabel = SEGMENT_LABELS[seg.type];
         const details = formatSegmentDetails(seg);
-        const costStr = seg.cost
-          ? formatCurrency(seg.cost.amount, seg.cost.currency)
-          : null;
+        const costStr =
+          includeCosts && seg.cost
+            ? formatCurrency(seg.cost.amount, seg.cost.currency)
+            : null;
         drawSegmentRow(doc, typeLabel, details, costStr, i);
       });
 

@@ -2399,7 +2399,7 @@ export class MockApiClient extends ApiClient {
     if (!trip) return Promise.reject(new Error("Trip not found"));
     const { tripToOneNoteHtml } = await import("@itinly/shared");
     const html = tripToOneNoteHtml(trip, {
-      includeCosts: true,
+      includeCosts: false,
       includeTodos: true,
     });
     // Demo mode has no backend and we don't want to ship a browser PDF
