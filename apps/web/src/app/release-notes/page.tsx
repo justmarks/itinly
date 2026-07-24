@@ -31,6 +31,176 @@ export default function ReleaseNotesPage(): React.JSX.Element {
           <section className="space-y-6">
             <header className="space-y-1">
               <h2 className="text-2xl font-semibold tracking-tight">
+                v1.5.0 — Smarter segment editor, 3× faster scans, self-advancing trips
+              </h2>
+              <p className="text-sm text-muted-foreground">July 23, 2026</p>
+            </header>
+
+            <p>
+              The segment editor got smart:{" "}
+              <strong>flights and transfers auto-title themselves</strong>{" "}
+              (<code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                JFK → NRT (JL 5)
+              </code>), the{" "}
+              <strong>airport typeahead searches 1,178 airports</strong> by
+              code, city, name, or alias, the departure / arrival{" "}
+              <strong>city auto-fills from the airport you pick</strong>, and
+              edits <strong>save on blur</strong> instead of forcing a Save
+              click. Email scanning is <strong>~3× faster</strong> — emails now
+              parse in parallel batches — and the parser{" "}
+              <strong>skips marketing blasts and pre-trip reminder emails</strong>{" "}
+              that used to produce junk segments.{" "}
+              <strong>Trips advance their own status</strong> as their dates
+              arrive (planning → active → completed). Plus PDF exports can now
+              omit costs, the mobile map stops flashing Japan while it
+              geocodes, and a Deno-based crawler that was flooding Sentry with
+              unactionable errors is filtered out.
+            </p>
+
+            <Subsection title="Smarter segment editor">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Auto-titles.</strong> Leave the title blank and itinly
+                  derives one from the segment&apos;s own fields — flights
+                  become{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    DEP → ARR (Carrier RouteCode)
+                  </code>{" "}
+                  once both airports are set, and ground transport gets sensible
+                  defaults. Titles you type by hand are always respected; only
+                  auto-generated ones re-derive.
+                </li>
+                <li>
+                  <strong>Airport typeahead everywhere.</strong> The departure /
+                  arrival fields search a bundled catalogue of{" "}
+                  <strong>1,178 commercial airports</strong> by IATA code, city,
+                  airport name, or alias (so &ldquo;Tokyo&rdquo; finds{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    NRT
+                  </code>).
+                </li>
+                <li>
+                  <strong>City auto-fill.</strong> Picking an airport fills in
+                  the matching city automatically, so map pins and day-city
+                  grouping get the right location without a second lookup.
+                </li>
+                <li>
+                  <strong>Blur-to-save.</strong> Segment fields persist when you
+                  tab or click away instead of requiring an explicit Save press.
+                </li>
+                <li>
+                  <strong>Baggage field dropped</strong> from the flight form,
+                  and corrected placeholders for car-service and other-transport
+                  segments.
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Faster, cleaner email scanning">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Parallel parsing (~3× faster).</strong> The scan
+                  pipeline parses emails in concurrent batches of three instead
+                  of one-at-a-time. A twelve-email inbox drops from roughly 54s
+                  to ~18s, well within Anthropic&apos;s rate limits.
+                </li>
+                <li>
+                  <strong>Marketing + reminder emails skipped.</strong> The
+                  parser now recognises promotional venue blasts and airline /
+                  hotel &ldquo;your trip is coming up&rdquo; reminders and skips
+                  them, instead of hallucinating segments out of content with no
+                  booking in it.
+                </li>
+                <li>
+                  <strong>Skip emails during review</strong> — skip individual
+                  emails, or &ldquo;Skip all&rdquo; when nothing&apos;s worth
+                  adding, before applying.
+                </li>
+                <li>
+                  <strong>Atomic dismiss</strong> fixes the staggered banner
+                  flicker where the pending count lagged behind the list, and
+                  the mobile scan sheet no longer scrolls past the day&apos;s
+                  content.
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Trips that keep themselves current">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Automatic status transitions.</strong> A trip&apos;s
+                  status now derives from its dates on load:{" "}
+                  <strong>planning</strong> before the start date,{" "}
+                  <strong>active</strong> once it&apos;s underway,{" "}
+                  <strong>completed</strong> after the end date. Cancelled trips
+                  stay cancelled. Transitions persist lazily in the background,
+                  so the Now / Upcoming / Past buckets stay accurate without
+                  anyone touching a status dropdown.
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Exports + maps">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Cost-free PDF exports.</strong> PDF export can now omit
+                  per-segment costs and the cost summary — handy for sharing an
+                  itinerary with someone who doesn&apos;t need to see what you
+                  paid.
+                </li>
+                <li>
+                  <strong>Mobile map stops flashing Japan.</strong> The
+                  full-screen mobile map no longer renders a default Japan
+                  viewport while it geocodes the trip&apos;s real locations, and
+                  falls back to the segment&apos;s city when precise coordinates
+                  aren&apos;t available yet.
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Reliability + under the hood">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Sentry bot-noise filter.</strong> A Deno-based crawler
+                  executing client JS on{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    /login
+                  </code>{" "}
+                  was generating unrecoverable errors in a runtime that
+                  can&apos;t stream{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    fetch
+                  </code>{" "}
+                  responses. The browser Sentry client now drops events from any
+                  such runtime, and the Service Worker registration path is
+                  hardened against a{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    register()
+                  </code>{" "}
+                  that resolves to{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    undefined
+                  </code>.
+                </li>
+                <li>
+                  <strong>Release-PR-only version bumps.</strong> The in-app
+                  version is bumped inside the release PR&apos;s own commit, so
+                  production always deploys a commit that already carries the
+                  right version.
+                </li>
+                <li>
+                  <strong>Tests grew to 1,065</strong> across 66 test suites —
+                  new coverage for auto-title derivation, the email-skip parser
+                  branch, the parallel-scan pipeline, and the trip
+                  auto-transition helper.
+                </li>
+              </ul>
+            </Subsection>
+          </section>
+
+          <section className="space-y-6">
+            <header className="space-y-1">
+              <h2 className="text-2xl font-semibold tracking-tight">
                 v1.3.0 — Places to go, calendar sync on shared trips, scheduled-scan safety nets
               </h2>
               <p className="text-sm text-muted-foreground">May 24, 2026</p>
