@@ -204,6 +204,66 @@ describe("Trip CRUD", () => {
     });
   });
 
+  describe("auto status transitions", () => {
+    it("list: past trip is returned as completed", async () => {
+      const createRes = await request(app)
+        .post("/api/v1/trips")
+        .send({ title: "Old Trip", startDate: "2020-01-01", endDate: "2020-01-05" });
+      expect(createRes.body.status).toBe("planning");
+
+      const res = await request(app).get("/api/v1/trips");
+      expect(res.status).toBe(200);
+      expect(res.body[0].status).toBe("completed");
+    });
+
+    it("list: future trip stays planning", async () => {
+      await request(app)
+        .post("/api/v1/trips")
+        .send({ title: "Future Trip", startDate: "2099-01-01", endDate: "2099-01-10" });
+
+      const res = await request(app).get("/api/v1/trips");
+      expect(res.body[0].status).toBe("planning");
+    });
+
+    it("list: cancelled trip is never auto-transitioned", async () => {
+      const createRes = await request(app)
+        .post("/api/v1/trips")
+        .send({ title: "Cancelled Trip", startDate: "2020-01-01", endDate: "2020-01-05" });
+      await request(app)
+        .put(`/api/v1/trips/${createRes.body.id}`)
+        .send({ status: "cancelled" });
+
+      const res = await request(app).get("/api/v1/trips");
+      expect(res.body[0].status).toBe("cancelled");
+    });
+
+    it("single: past trip is returned as completed and persisted", async () => {
+      const createRes = await request(app)
+        .post("/api/v1/trips")
+        .send({ title: "Old Trip", startDate: "2020-06-01", endDate: "2020-06-05" });
+      const id = createRes.body.id as string;
+
+      const res = await request(app).get(`/api/v1/trips/${id}`);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("completed");
+
+      // Confirm the transition was persisted to storage
+      const stored = await storage.getTrip(id);
+      expect(stored?.status).toBe("completed");
+    });
+
+    it("single: cancelled trip is never auto-transitioned", async () => {
+      const createRes = await request(app)
+        .post("/api/v1/trips")
+        .send({ title: "Cancelled Old Trip", startDate: "2020-01-01", endDate: "2020-01-05" });
+      const id = createRes.body.id as string;
+      await request(app).put(`/api/v1/trips/${id}`).send({ status: "cancelled" });
+
+      const res = await request(app).get(`/api/v1/trips/${id}`);
+      expect(res.body.status).toBe("cancelled");
+    });
+  });
+
   describe("GET /api/v1/trips/:tripId", () => {
     it("returns full trip with days", async () => {
       const createRes = await request(app)

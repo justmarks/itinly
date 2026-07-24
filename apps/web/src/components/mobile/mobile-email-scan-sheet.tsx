@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ApiError,
+  queryKeys,
+  useApiClient,
   useApplyParsedSegments,
   useCreateTrip,
-  useDismissEmail,
   useGmailLabels,
   usePendingEmails,
   useStreamingScanEmails,
@@ -195,8 +197,9 @@ function ScanBody({
     total: number;
     current: { subject: string; from: string } | null;
   }>({ foundTotal: null, parsed: 0, total: 0, current: null });
+  const queryClient = useQueryClient();
+  const apiClient = useApiClient();
   const applySegments = useApplyParsedSegments();
-  const dismissEmail = useDismissEmail();
   const createTrip = useCreateTrip();
 
   // Initial step:
@@ -575,25 +578,54 @@ function ScanBody({
         added = res.created.length + (res.updated?.length ?? 0);
       }
       // Auto-dismiss emails whose every segment was skipped/deselected
-      // — matches desktop. Reduces re-scan noise. Errors here are
-      // non-fatal (dismissals can be retried by re-scanning), but we
-      // still attach an `onError` so failures don't surface as
-      // unhandled-promise warnings in production logs. Counts so the
-      // done screen can distinguish "added 0 because all skipped"
-      // from "no new emails found at all".
+      // — matches desktop. Reduces re-scan noise.
+      // Fires all dismissals in parallel and awaits them before
+      // advancing to "done" so the banner drops to zero atomically
+      // rather than decrementing one request at a time.
       const appliedEmailIds = new Set(toApply.map((it) => it.emailId));
-      const allEmailIds = new Set(results.map((r) => r.emailId));
-      let dismissedCount = 0;
-      for (const id of allEmailIds) {
-        if (!appliedEmailIds.has(id)) {
-          dismissedCount += 1;
-          dismissEmail.mutate(id, {
-            onError: (e) => {
-              console.warn("[email-scan] failed to dismiss email", id, e);
-            },
-          });
-        }
+      const toDismissIds = [...new Set(results.map((r) => r.emailId))].filter(
+        (id) => !appliedEmailIds.has(id),
+      );
+      let dismissedCount = toDismissIds.length;
+
+      if (toDismissIds.length > 0) {
+        // Optimistic update: remove dismissed emails from cache now so
+        // the banner reflects the final state immediately, not after
+        // each individual request completes.
+        queryClient.setQueryData<{ results: EmailScanResult[] }>(
+          queryKeys.processedEmails,
+          (old) =>
+            old
+              ? {
+                  ...old,
+                  results: old.results.filter(
+                    (r) => !toDismissIds.includes(r.emailId),
+                  ),
+                }
+              : old,
+        );
+
+        const settled = await Promise.allSettled(
+          toDismissIds.map((id) => apiClient.dismissEmail(id)),
+        );
+
+        settled.forEach((outcome, i) => {
+          if (outcome.status === "rejected") {
+            dismissedCount -= 1;
+            console.warn(
+              "[email-scan] failed to dismiss email",
+              toDismissIds[i],
+              outcome.reason,
+            );
+          }
+        });
+
+        // Single re-fetch to reconcile with server state.
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.processedEmails,
+        });
       }
+
       setAppliedCount(added);
       setDismissedCount(dismissedCount);
       setStep("done");
@@ -1020,17 +1052,15 @@ function ScanBody({
           <button
             type="button"
             onClick={handleApply}
-            // Disable when nothing eligible to send (selected + non-skip
-            // + has trip target) — `applyableCount` reflects the same
-            // filter `handleApply` uses to build the request, so the
-            // button can't be tapped into a no-op call.
-            disabled={applyableCount === 0 || isApplying}
+            disabled={isApplying}
             className="inline-flex h-11 flex-[2] items-center justify-center gap-1.5 rounded-full bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
           >
             {isApplying && (
               <Loader2 className="h-4 w-4 animate-spin" />
             )}
-            Add {applyableCount} segment{applyableCount === 1 ? "" : "s"}
+            {applyableCount === 0
+              ? "Skip all"
+              : `Add ${applyableCount} segment${applyableCount === 1 ? "" : "s"}`}
           </button>
         </Footer>
       </>

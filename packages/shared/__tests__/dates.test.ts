@@ -6,6 +6,7 @@ import {
   dateRangesOverlap,
   findOverlappingTrips,
   formatTripDateRange,
+  autoTransitionStatus,
 } from "../src/utils/dates";
 
 describe("getDayOfWeek", () => {
@@ -208,6 +209,58 @@ describe("findOverlappingTrips", () => {
       "t1",
     );
     expect(result).toHaveLength(0);
+  });
+});
+
+describe("autoTransitionStatus", () => {
+  const base = { startDate: "2026-06-10", endDate: "2026-06-20" };
+
+  it("returns planning when today is before start date", () => {
+    expect(
+      autoTransitionStatus({ ...base, status: "planning" }, "2026-06-09"),
+    ).toBe("planning");
+  });
+
+  it("returns active on the start date", () => {
+    expect(
+      autoTransitionStatus({ ...base, status: "planning" }, "2026-06-10"),
+    ).toBe("active");
+  });
+
+  it("returns active during the trip", () => {
+    expect(
+      autoTransitionStatus({ ...base, status: "active" }, "2026-06-15"),
+    ).toBe("active");
+  });
+
+  it("returns active on the last day of the trip", () => {
+    expect(
+      autoTransitionStatus({ ...base, status: "active" }, "2026-06-20"),
+    ).toBe("active");
+  });
+
+  it("returns completed the day after the trip ends", () => {
+    expect(
+      autoTransitionStatus({ ...base, status: "active" }, "2026-06-21"),
+    ).toBe("completed");
+  });
+
+  it("returns completed for past trips regardless of stored status", () => {
+    expect(
+      autoTransitionStatus({ ...base, status: "planning" }, "2026-12-01"),
+    ).toBe("completed");
+  });
+
+  it("never changes a cancelled trip", () => {
+    expect(
+      autoTransitionStatus({ ...base, status: "cancelled" }, "2026-06-15"),
+    ).toBe("cancelled");
+    expect(
+      autoTransitionStatus({ ...base, status: "cancelled" }, "2026-06-21"),
+    ).toBe("cancelled");
+    expect(
+      autoTransitionStatus({ ...base, status: "cancelled" }, "2026-06-01"),
+    ).toBe("cancelled");
   });
 });
 
