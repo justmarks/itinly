@@ -1,3 +1,46 @@
+# itinly v1.5.0
+
+The segment editor got smart: **flights and transfers auto-title themselves** (`JFK → NRT (JL 5)`, `Car service — Hotel pickup`), the **airport typeahead searches 1,178 airports** by code, city, name, or alias, the departure/arrival **city auto-fills from the airport you pick**, and edits **save on blur** instead of forcing a Save click. Email scanning is **~3× faster** — emails now parse in parallel batches — and the parser **skips marketing blasts and pre-trip reminder emails** that used to produce junk segments. **Trips advance their own status** as their dates arrive (planning → active → completed), so your list stays honest without manual bookkeeping. Plus PDF exports can now **omit costs**, the mobile map stops flashing Japan while it geocodes, and a Deno-based crawler that was flooding Sentry with unactionable errors is filtered out.
+
+## Smarter segment editor
+
+- **Auto-titles.** Leave the title blank and itinly derives one from the segment's own fields — flights become `DEP → ARR (Carrier RouteCode)` once both airports are set, car service and other ground transport get sensible defaults (`Car service — <pickup>`), and the title stops fighting you when you edit the underlying fields. Titles you type by hand are always respected; only auto-generated ones re-derive.
+- **Airport typeahead everywhere.** The departure/arrival fields search a bundled catalogue of **1,178 commercial airports** by IATA code, city, airport name, or alias (so "Tokyo" finds `NRT`), matching the flight-endpoint UX already in the itinerary view.
+- **City auto-fill.** Picking an airport fills in the matching departure/arrival city automatically, so map pins and day-city grouping get the right location without a second lookup.
+- **Blur-to-save.** Segment fields persist when you tab or click away instead of requiring an explicit Save press — fewer lost edits, faster multi-field entry.
+- **Baggage field dropped** from the flight form — it was noise more often than signal.
+- **Corrected placeholders** for car-service and other-transport segments so the ghost text matches what the field actually wants.
+
+## Faster, cleaner email scanning
+
+- **Parallel parsing (~3× faster).** The scan pipeline parses emails in concurrent batches of three instead of one-at-a-time. A twelve-email inbox drops from roughly 54s to ~18s, well within Anthropic's rate limits.
+- **Marketing + reminder emails skipped.** The parser now recognises promotional venue blasts and airline/hotel "your trip is coming up" reminder emails and skips them, instead of hallucinating segments out of content that has no booking in it.
+- **Skip emails during review.** The mobile review step lets you skip individual emails (and "Skip all" when nothing's worth adding) before applying.
+- **Atomic dismiss.** Dismissing emails now updates in one atomic step, fixing the staggered banner flicker where the pending count lagged behind the list.
+- **Mobile scroll fix.** The scan sheet no longer lets you scroll past the day's content into empty space.
+
+## Trips that keep themselves current
+
+- **Automatic status transitions.** A trip's status now derives from its dates on load: **planning** before the start date, **active** once it's underway, **completed** after the end date. Cancelled trips stay cancelled. Transitions persist lazily in the background, so the Now / Upcoming / Past buckets stay accurate without anyone touching a status dropdown.
+
+## Exports + maps
+
+- **Cost-free PDF exports.** PDF export can now omit per-segment costs and the cost summary — handy for sharing an itinerary with someone who doesn't need to see what you paid.
+- **Mobile map stops flashing Japan.** The full-screen mobile map no longer renders a default Japan viewport while it geocodes the trip's real locations, and falls back to the segment's city when precise coordinates aren't available yet.
+
+## Reliability + under the hood
+
+- **Sentry bot-noise filter.** A Deno-based crawler / link-preview bot was executing client JS on `/login` and generating unrecoverable errors — a stubbed Service Worker API and Next.js's internal RSC `getReader()` both crash in a runtime that can't stream `fetch` responses. The browser Sentry client now drops events from any runtime whose `Response.prototype` lacks `body`, so these never leave the browser. The SW registration path is also hardened against `register()` resolving to `undefined`.
+- **Release-PR-only version bumps.** The version embedded in the in-app footer (`NEXT_PUBLIC_APP_VERSION`) is now bumped inside the release PR's own commit rather than a follow-up workflow commit, so production always deploys a commit that already carries the right version. The Release Tag workflow verifies the bump and pushes the tag without creating commits. Documented in `RELEASING.md`.
+- **Release Tag workflow YAML fixes.** Quoted the job-level `if` expression whose embedded colon broke YAML parsing.
+- **Tests grew to 1065** across 66 test suites — new coverage for the segment auto-title derivation, the marketing/reminder email-skip parser branch, the parallel-scan pipeline, and the trip auto-transition helper.
+
+## Thanks
+
+A quality-of-life release: the segment editor finally does the tedious typing for you, scans finish in a third of the time, and trips stop needing manual status babysitting. Onward to 1.6.x.
+
+---
+
 # itinly v1.3.0
 
 Save destinations you haven't scheduled yet — museums, viewpoints, restaurants — to a per-trip **Places to go** list that pins them onto the map without forcing a date and time. **Calendar sync now works on shared trips**, so every co-traveller can push the same itinerary to their own Google or Outlook calendar without clobbering anyone else's event ids. **Auto email-scan** picks up safety nets — a "Run now" button on each schedule, a Sentry alert when scheduled runs start failing, and an in-app banner that one-click reconnects a provider that revoked your token between runs. Plus a long list of mobile + desktop polish: the email-scan review card stops conflating the action chip with the checkbox, the trip header on shared trips no longer renders two `…` menus, and the user-menu "Account" entry now reads "Settings" to match what's actually in there.

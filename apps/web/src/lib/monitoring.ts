@@ -32,6 +32,15 @@ export function initMonitoring(): void {
     // it leaves the browser. See `lib/sentry-scrub.ts` for what's
     // redacted and why.
     beforeSend(event) {
+      // Drop noise from non-conformant runtimes (Deno-based crawlers,
+      // link-preview bots) that execute client JS but stub out
+      // `Response.body` streaming. They crash inside Next.js's RSC
+      // `getReader()` call and in our SW registration — not in code any real
+      // browser reaches. `Response.prototype.body` is present in every
+      // streaming-capable browser, so its absence flags one of these bots.
+      if (typeof Response !== "undefined" && !("body" in Response.prototype)) {
+        return null;
+      }
       if (event.request?.url) {
         event.request.url = redactShareTokens(event.request.url);
       }

@@ -54,6 +54,11 @@ export function ServiceWorkerRegister(): null {
         });
         if (cancelled) return;
 
+        // Non-conformant runtimes (Deno-based crawlers / link-preview bots)
+        // can resolve `register()` to `undefined` instead of a
+        // ServiceWorkerRegistration. Bail rather than dereferencing it.
+        if (!registration) return;
+
         // If a new SW is already waiting (user came back to a tab after a
         // deploy), tell it to take over immediately.
         if (registration.waiting) {

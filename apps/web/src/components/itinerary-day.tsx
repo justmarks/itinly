@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   formatCurrency,
   formatFlightLabel,
@@ -41,7 +41,6 @@ import {
   Trash2,
   Pencil,
   Plus,
-  Check,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -629,17 +628,20 @@ function EditableCity({
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(city);
   const updateDay = useUpdateDay(tripId);
+  // Set synchronously from the Cancel pointerdown handler so the
+  // input's onBlur (which fires immediately after) can skip the save.
+  // A ref instead of state because state updates are async and the
+  // blur happens before the next render.
+  const cancellingRef = useRef(false);
 
   const save = () => {
+    const trimmed = value.trim();
     setEditing(false);
-    if (value !== city) {
-      updateDay.mutate(
-        { date, city: value },
-        {
-          onError: toastMutationError("update city"),
-        },
-      );
-    }
+    if (trimmed === city) return;
+    updateDay.mutate(
+      { date, city: trimmed },
+      { onError: toastMutationError("update city") },
+    );
   };
 
   const cancel = () => {
@@ -666,23 +668,27 @@ function EditableCity({
           onKeyDown={(e) => {
             if (e.key === "Escape") cancel();
           }}
+          onBlur={() => {
+            if (cancellingRef.current) {
+              cancellingRef.current = false;
+              return;
+            }
+            save();
+          }}
         />
-        <Button
-          type="submit"
-          variant="ghost"
-          size="icon"
-          aria-label="Save city"
-          className="h-6 w-6"
-          disabled={updateDay.isPending}
-        >
-          <Check className="h-3 w-3" />
-        </Button>
         <Button
           type="button"
           variant="ghost"
           size="icon"
           aria-label="Cancel"
           className="h-6 w-6"
+          // Prevent the click from blurring the input first (which
+          // would trigger save) — pointerdown fires before blur on
+          // both mouse and touch.
+          onPointerDown={(e) => {
+            e.preventDefault();
+            cancellingRef.current = true;
+          }}
           onClick={cancel}
         >
           <X className="h-3 w-3" />

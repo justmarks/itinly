@@ -1,9 +1,15 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useCreateSegment } from "@itinly/api-client";
-import type { SegmentType } from "@itinly/shared";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  queryKeys,
+  useCreateSegment,
+  useUpdateDay,
+} from "@itinly/api-client";
+import type { SegmentType, Trip } from "@itinly/shared";
 import { toastMutationError } from "@/lib/api-error";
+import { computeDayCityUpdateFromSegmentForm } from "@/lib/segment-day-city";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +56,8 @@ export function AddSegmentDialog({
   });
 
   const createSegment = useCreateSegment(tripId);
+  const updateDay = useUpdateDay(tripId);
+  const queryClient = useQueryClient();
 
   const handleChange = useCallback((patch: Partial<SegmentFormState>) => {
     setForm((prev) => ({ ...prev, ...patch }));
@@ -74,6 +82,15 @@ export function AddSegmentDialog({
             details: form.costDetails || undefined,
           }
         : undefined;
+
+    // Snapshot before the mutation so the day-state check reflects the
+    // pre-mutation cache (the new segment isn't in `day.segments` yet).
+    const dayCityUpdate = computeDayCityUpdateFromSegmentForm({
+      trip: queryClient.getQueryData<Trip>(queryKeys.trip(tripId)),
+      form,
+      mode: "new",
+      targetDate: date,
+    });
 
     createSegment.mutate(
       {
@@ -120,6 +137,7 @@ export function AddSegmentDialog({
       },
       {
         onSuccess: () => {
+          if (dayCityUpdate) updateDay.mutate(dayCityUpdate);
           setOpen(false);
           reset();
         },

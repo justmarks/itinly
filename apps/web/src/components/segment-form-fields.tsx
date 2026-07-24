@@ -187,30 +187,117 @@ const MEAL_LABELS: Record<string, string> = {
   restaurant_dinner: "Dinner",
 };
 
+// Per-type auto-title shapes. We use these to decide whether the current
+// title field looks like a previously-derived auto-title (so we can
+// overwrite it as the underlying fields change), vs. a custom title the
+// user typed (which we must leave alone). Hotel & cruise titles are bare
+// strings — see isLikelyAutoTitle below for how those are handled.
+const FLIGHT_TITLE_RE = /^[A-Z]{3}\s*→\s*[A-Z]{3}(\s*\(.+\))?$/;
+const TRAIN_TITLE_RE = /^.+\s*→\s*.+(\s*\(.+\))?$/;
+const MEAL_TITLE_RE = /^(Breakfast|Brunch|Lunch|Dinner) @ .+$/;
+const CAR_RENTAL_TITLE_RE = /^[^-]+\s-\s.+$/;
+
+/**
+ * Derives the live auto-title for a segment of `type`, reading fields
+ * from `patch` first and falling back to `form`. Returns null when the
+ * preconditions for this type aren't met (e.g. flight needs both
+ * 3-letter codes, meal needs a venue). The callers use this both for
+ * live in-form updates as the user types and for the save-time fallback
+ * in `resolveSegmentTitle`.
+ *
+ * The per-type shapes are intentionally consistent — every supported
+ * type fills the title field live as the user enters its key fields so
+ * the UX is the same across flight / train / hotel / meal / car / cruise.
+ */
+export function deriveAutoTitle(
+  type: string,
+  form: SegmentFormState,
+  patch: Partial<SegmentFormState> = {},
+): string | null {
+  const get = (k: keyof SegmentFormState) =>
+    ((patch[k] ?? form[k]) as string | undefined ?? "");
+
+  if (type === "flight") {
+    const dep = get("departureAirport").trim().toUpperCase();
+    const arr = get("arrivalAirport").trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(dep) || !/^[A-Z]{3}$/.test(arr)) return null;
+    const label = [get("carrier").trim(), get("routeCode").trim()]
+      .filter(Boolean)
+      .join(" ");
+    return label ? `${dep} → ${arr} (${label})` : `${dep} → ${arr}`;
+  }
+  if (type === "train") {
+    const dep = get("departureCity").trim();
+    const arr = get("arrivalCity").trim();
+    if (!dep || !arr) return null;
+    const label = [get("carrier").trim(), get("routeCode").trim()]
+      .filter(Boolean)
+      .join(" ");
+    return label ? `${dep} → ${arr} (${label})` : `${dep} → ${arr}`;
+  }
+  if (type === "hotel") {
+    const venue = get("venueName").trim();
+    return venue || null;
+  }
+  if (MEAL_LABELS[type]) {
+    const venue = get("venueName").trim();
+    if (!venue) return null;
+    return `${MEAL_LABELS[type]} @ ${venue}`;
+  }
+  if (type === "car_rental") {
+    const provider = get("provider").trim();
+    const pickup = get("departureCity").trim();
+    if (!provider || !pickup) return null;
+    return `${provider} - ${pickup}`;
+  }
+  if (type === "cruise") {
+    const ship = get("shipName").trim();
+    return ship || null;
+  }
+  return null;
+}
+
+/**
+ * True if `current` looks like a previously-derived auto-title for
+ * `type`, meaning it's safe to overwrite as the source fields change.
+ * Blank is always overwriteable. Hotel & cruise titles have no shape,
+ * so we compare to the prior venue/ship from `form` — if the title
+ * still matches what we'd have auto-filled before the current patch,
+ * the user hasn't customised it.
+ */
+function isLikelyAutoTitle(
+  current: string,
+  type: string,
+  form: SegmentFormState,
+): boolean {
+  if (!current) return true;
+  if (type === "flight") return FLIGHT_TITLE_RE.test(current);
+  if (type === "train") return TRAIN_TITLE_RE.test(current);
+  if (type === "hotel") return current === form.venueName.trim();
+  if (MEAL_LABELS[type]) return MEAL_TITLE_RE.test(current);
+  if (type === "car_rental") return CAR_RENTAL_TITLE_RE.test(current);
+  if (type === "cruise") return current === form.shipName.trim();
+  return false;
+}
+
 /**
  * Returns the title to save for the segment. If the user typed one,
- * use it verbatim. Otherwise derive from per-type hints:
- *   - dining   → "<Meal> @ <Venue>" (e.g. "Lunch @ Araxi")
- *   - car_rental → "<Provider> - <Pickup city>" (e.g. "Hertz - Lihue")
- *   - cruise   → the ship name (e.g. "Symphony of the Seas")
- * Returns "" when no title is available; the form-level `canSave`
- * refuses to submit in that case.
+ * use it verbatim. Otherwise derive from per-type hints via
+ * `deriveAutoTitle`. Returns "" when nothing can be derived; the
+ * form-level `canSave` refuses to submit in that case.
+ *
+ * Car-rental has an extra fallback to provider-alone when pickup city
+ * isn't set — better than blocking a save outright on a partially-filled
+ * record.
  */
 export function resolveSegmentTitle(form: SegmentFormState): string {
   const typed = form.title.trim();
   if (typed) return typed;
-  const mealLabel = MEAL_LABELS[form.type];
-  const venue = form.venueName.trim();
-  if (mealLabel && venue) return `${mealLabel} @ ${venue}`;
+  const auto = deriveAutoTitle(form.type, form);
+  if (auto) return auto;
   if (form.type === "car_rental") {
     const provider = form.provider.trim();
-    const pickup = form.departureCity.trim();
-    if (provider && pickup) return `${provider} - ${pickup}`;
     if (provider) return provider;
-  }
-  if (form.type === "cruise") {
-    const ship = form.shipName.trim();
-    if (ship) return ship;
   }
   return "";
 }
@@ -261,20 +348,49 @@ function AirportInput({
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
-  const results = useMemo(() => (open && value ? searchAirports(value, 8) : []), [open, value]);
+  // Local "query" — what the user has typed into the field. Kept
+  // separate from the form-bound `value` (the committed IATA code)
+  // so the user can type a city name like "TOKYO" to search the
+  // dropdown without polluting form state with non-IATA text — which
+  // the server's Zod validator would reject on save with
+  // "Must be a 3-letter IATA airport code". The form value is only
+  // committed when the query is exactly 3 letters (a candidate IATA
+  // code) or empty (clearing the field).
+  const [query, setQuery] = useState(value);
+
+  // Sync the local query to the form value when the input isn't
+  // focused — covers the editing-a-different-segment case where the
+  // parent loads new data. While focused / open, hold the local
+  // query so a parent re-render doesn't yank the user's typing.
+  useEffect(() => {
+    if (!open) setQuery(value);
+  }, [value, open]);
+
+  const results = useMemo(() => (open && query ? searchAirports(query, 8) : []), [open, query]);
 
   // Reset the highlighted row whenever the result list changes so a stale
   // index doesn't persist across queries.
   useEffect(() => {
     setHighlight(0);
-  }, [results.length, value]);
+  }, [results.length, query]);
 
   const selectByIndex = (idx: number): void => {
     const r = results[idx];
     if (!r) return;
+    setQuery(r.code);
     onChange(r.code);
     onPick?.(r);
     setOpen(false);
+  };
+
+  // If the input was left holding a non-IATA query (e.g. "TOKYO" from a
+  // city search the user didn't finish picking), revert to the last
+  // committed value so the field doesn't show stale junk that won't
+  // save. Empty is allowed — that's a deliberate clear.
+  const revertOnLeave = (): void => {
+    if (query !== "" && !/^[A-Z]{3}$/.test(query)) {
+      setQuery(value);
+    }
   };
 
   return (
@@ -282,17 +398,30 @@ function AirportInput({
       <Input
         id={id}
         placeholder={placeholder}
-        value={value}
+        value={query}
         autoComplete="off"
         onChange={(e) => {
           const next = e.target.value.toUpperCase();
-          onChange(next);
+          setQuery(next);
           setOpen(true);
-          // If the typed value matches a known IATA code we also fire onPick
-          // so the caller can backfill derived fields (e.g. city) without the
-          // user having to click the dropdown.
-          const info = lookupAirport(next);
-          if (info) onPick?.(info);
+          // Commit to form ONLY when the input is empty (a clear) or
+          // exactly 3 letters (a candidate IATA code). Past 3 chars
+          // the user is searching by city name — leave the form value
+          // at whatever was last committed so the Zod validator
+          // doesn't see a half-typed string.
+          if (next === "") {
+            if (value !== "") onChange("");
+            return;
+          }
+          if (/^[A-Z]{3}$/.test(next)) {
+            onChange(next);
+            // If the typed value matches a known IATA code we also
+            // fire onPick so the caller can backfill derived fields
+            // (e.g. city) without the user having to click the
+            // dropdown.
+            const info = lookupAirport(next);
+            if (info) onPick?.(info);
+          }
         }}
         onFocus={() => setOpen(true)}
         // Close synchronously on blur. The dropdown buttons preventDefault on
@@ -300,7 +429,10 @@ function AirportInput({
         // before this fires, and we don't want a stale dropdown lingering
         // after the user has already left the field (it caused the focus
         // trap in the dialog to bounce focus back to the top).
-        onBlur={() => setOpen(false)}
+        onBlur={() => {
+          setOpen(false);
+          revertOnLeave();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Tab") {
             // Tear the dropdown out of the DOM *synchronously* so the
@@ -310,6 +442,7 @@ function AirportInput({
             // Without it the dropdown was occasionally lingering and the
             // dialog's focus trap would bounce focus back to the top.
             if (open) flushSync(() => setOpen(false));
+            revertOnLeave();
             return;
           }
           if (e.key === "ArrowDown") {
@@ -560,7 +693,6 @@ function advancedFilledCount(form: SegmentFormState): number {
   if (flags.isFlight) {
     if (form.cabinClass) n += 1;
     if (form.seatNumber) n += 1;
-    if (form.baggageInfo) n += 1;
   } else if (flags.isTrain) {
     if (form.coach) n += 1;
     if (form.seatNumber) n += 1;
@@ -636,64 +768,22 @@ export function SegmentFormFields({
   } = flags;
   const isOtherTransport = isTransport && !isFlight && !isTrain;
 
-  // For flights, derive `title` from the IATA codes (and the carrier/flight
-  // number when set) whenever both endpoints are filled. We only overwrite
-  // when the title is empty or already follows the auto-format
-  // ("XXX → YYY" or "XXX → YYY (Carrier RouteCode)") so a user who types a
-  // custom title keeps their wording.
-  const flightAutoTitlePattern = /^[A-Z]{3}\s*→\s*[A-Z]{3}(\s*\(.+\))?$/;
-  const applyFlightAutoTitle = (patch: Partial<SegmentFormState>): void => {
-    if (!isFlight) return;
-    const dep = (patch.departureAirport ?? form.departureAirport).trim().toUpperCase();
-    const arr = (patch.arrivalAirport ?? form.arrivalAirport).trim().toUpperCase();
-    if (!/^[A-Z]{3}$/.test(dep) || !/^[A-Z]{3}$/.test(arr)) return;
-    const carrier = (patch.carrier ?? form.carrier).trim();
-    const route = (patch.routeCode ?? form.routeCode).trim();
-    const flightLabel = [carrier, route].filter(Boolean).join(" ");
-    const auto = flightLabel ? `${dep} → ${arr} (${flightLabel})` : `${dep} → ${arr}`;
-    const current = (patch.title ?? form.title).trim();
-    if (current && !flightAutoTitlePattern.test(current)) return;
-    patch.title = auto;
-  };
-  const pushFlightPatch = (patch: Partial<SegmentFormState>): void => {
-    applyFlightAutoTitle(patch);
-    onChange(patch);
-  };
-
-  // Same UX as flights — live-fill the title field for car rentals and
-  // cruises as the user types the source fields, so the user sees the
-  // auto-title appear and doesn't think they need to type it themselves.
-  // The pattern-check refuses to overwrite a user-typed title that
-  // doesn't match the auto-shape, so a custom title is never lost.
-  const carRentalAutoTitlePattern = /^[^-]+\s-\s.+$/;
-  const applyCarRentalAutoTitle = (patch: Partial<SegmentFormState>): void => {
-    if (!isCarRental) return;
-    const provider = (patch.provider ?? form.provider).trim();
-    const pickup = (patch.departureCity ?? form.departureCity).trim();
-    if (!provider || !pickup) return;
-    const current = (patch.title ?? form.title).trim();
-    if (current && !carRentalAutoTitlePattern.test(current)) return;
-    patch.title = `${provider} - ${pickup}`;
-  };
-  const pushCarRentalPatch = (patch: Partial<SegmentFormState>): void => {
-    applyCarRentalAutoTitle(patch);
-    onChange(patch);
-  };
-
-  const applyCruiseAutoTitle = (patch: Partial<SegmentFormState>): void => {
-    if (!isCruise) return;
-    const ship = (patch.shipName ?? form.shipName).trim();
-    if (!ship) return;
-    const current = (patch.title ?? form.title).trim();
-    // Auto-fill only when blank or matches the previously-auto shape
-    // (i.e. the user hasn't typed a custom cruise title). Since the
-    // cruise auto-title is just the ship name, we recognise that exact
-    // form by comparing against the previous shipName value.
-    if (current && current !== form.shipName.trim()) return;
-    patch.title = ship;
-  };
-  const pushCruisePatch = (patch: Partial<SegmentFormState>): void => {
-    applyCruiseAutoTitle(patch);
+  // Live-fill the title field as the user types the segment's source
+  // fields, so every auto-titled type (flight / train / hotel / meal /
+  // car_rental / cruise) shows the same "title appears as you fill it
+  // in" UX. `isLikelyAutoTitle` gates the overwrite so a user-typed
+  // custom title is never clobbered.
+  //
+  // The effective type comes from `patch.type ?? form.type` so the
+  // handler also fires correctly during a type-change (e.g. switching
+  // restaurant_lunch → restaurant_dinner refreshes the meal label).
+  const pushAutoPatch = (patch: Partial<SegmentFormState>): void => {
+    const effectiveType = patch.type ?? form.type;
+    const auto = deriveAutoTitle(effectiveType, form, patch);
+    if (auto !== null) {
+      const current = (patch.title ?? form.title).trim();
+      if (isLikelyAutoTitle(current, effectiveType, form)) patch.title = auto;
+    }
     onChange(patch);
   };
 
@@ -730,7 +820,7 @@ export function SegmentFormFields({
                   if (!form.startTime) patch.startTime = "15:00";
                   if (!form.endTime) patch.endTime = "11:00";
                 }
-                onChange(patch);
+                pushAutoPatch(patch);
               }}
             />
           ) : (
@@ -745,7 +835,7 @@ export function SegmentFormFields({
                   if (!form.startTime) patch.startTime = "15:00";
                   if (!form.endTime) patch.endTime = "11:00";
                 }
-                onChange(patch);
+                pushAutoPatch(patch);
               }}
             />
           )}
@@ -777,9 +867,13 @@ export function SegmentFormFields({
           id={`${idPrefix}-title`}
           placeholder={
             isFlight ? "e.g. SEA → NRT" :
+            isTrain ? "e.g. Paris → London" :
             isHotel ? "e.g. Hilton Garden Inn" :
-            isRestaurant ? "Auto: \"<Meal> @ <Venue>\"" :
+            isRestaurant ? "e.g. Lunch @ Araxi" :
             isCarRental ? "e.g. National - Lihue" :
+            isCarService ? "e.g. Airport transfer" :
+            isCruise ? "e.g. Symphony of the Seas" :
+            isOtherTransport ? "e.g. Ferry to Capri" :
             "e.g. City Walking Tour"
           }
           value={form.title}
@@ -798,8 +892,8 @@ export function SegmentFormFields({
                 id={`${idPrefix}-dep-airport`}
                 placeholder="e.g. SEA"
                 value={form.departureAirport}
-                onChange={(v) => pushFlightPatch({ departureAirport: v, departureCity: "" })}
-                onPick={(info) => pushFlightPatch({ departureCity: info.city })}
+                onChange={(v) => pushAutoPatch({ departureAirport: v, departureCity: "" })}
+                onPick={(info) => pushAutoPatch({ departureCity: info.city })}
               />
             </div>
             <div className="space-y-2">
@@ -808,8 +902,8 @@ export function SegmentFormFields({
                 id={`${idPrefix}-arr-airport`}
                 placeholder="e.g. NRT"
                 value={form.arrivalAirport}
-                onChange={(v) => pushFlightPatch({ arrivalAirport: v, arrivalCity: "" })}
-                onPick={(info) => pushFlightPatch({ arrivalCity: info.city })}
+                onChange={(v) => pushAutoPatch({ arrivalAirport: v, arrivalCity: "" })}
+                onPick={(info) => pushAutoPatch({ arrivalCity: info.city })}
               />
             </div>
           </div>
@@ -820,7 +914,7 @@ export function SegmentFormFields({
                 id={`${idPrefix}-carrier`}
                 placeholder="e.g. Alaska Airlines"
                 value={form.carrier}
-                onChange={(e) => pushFlightPatch({ carrier: e.target.value })}
+                onChange={(e) => pushAutoPatch({ carrier: e.target.value })}
               />
             </div>
             <div className="space-y-2">
@@ -829,7 +923,7 @@ export function SegmentFormFields({
                 id={`${idPrefix}-route`}
                 placeholder="e.g. AS123"
                 value={form.routeCode}
-                onChange={(e) => pushFlightPatch({ routeCode: e.target.value })}
+                onChange={(e) => pushAutoPatch({ routeCode: e.target.value })}
               />
             </div>
           </div>
@@ -866,7 +960,7 @@ export function SegmentFormFields({
                 id={`${idPrefix}-dep-city`}
                 placeholder="e.g. Paris Gare du Nord"
                 value={form.departureCity}
-                onChange={(e) => onChange({ departureCity: e.target.value })}
+                onChange={(e) => pushAutoPatch({ departureCity: e.target.value })}
               />
             </div>
             <div className="space-y-2">
@@ -875,7 +969,7 @@ export function SegmentFormFields({
                 id={`${idPrefix}-arr-city`}
                 placeholder="e.g. London St Pancras"
                 value={form.arrivalCity}
-                onChange={(e) => onChange({ arrivalCity: e.target.value })}
+                onChange={(e) => pushAutoPatch({ arrivalCity: e.target.value })}
               />
             </div>
           </div>
@@ -886,7 +980,7 @@ export function SegmentFormFields({
                 id={`${idPrefix}-carrier`}
                 placeholder="e.g. Eurostar"
                 value={form.carrier}
-                onChange={(e) => onChange({ carrier: e.target.value })}
+                onChange={(e) => pushAutoPatch({ carrier: e.target.value })}
               />
             </div>
             <div className="space-y-2">
@@ -895,7 +989,7 @@ export function SegmentFormFields({
                 id={`${idPrefix}-route`}
                 placeholder="e.g. ES 9024"
                 value={form.routeCode}
-                onChange={(e) => onChange({ routeCode: e.target.value })}
+                onChange={(e) => pushAutoPatch({ routeCode: e.target.value })}
               />
             </div>
           </div>
@@ -987,7 +1081,7 @@ export function SegmentFormFields({
                 id={`${idPrefix}-venue`}
                 placeholder="e.g. Marriott Waikiki"
                 value={form.venueName}
-                onChange={(e) => onChange({ venueName: e.target.value })}
+                onChange={(e) => pushAutoPatch({ venueName: e.target.value })}
               />
             </div>
             <div className="space-y-2">
@@ -1024,7 +1118,7 @@ export function SegmentFormFields({
                 id={`${idPrefix}-dep-city`}
                 placeholder="e.g. Lihue"
                 value={form.departureCity}
-                onChange={(e) => pushCarRentalPatch({ departureCity: e.target.value })}
+                onChange={(e) => pushAutoPatch({ departureCity: e.target.value })}
               />
             </div>
             <div className="space-y-2">
@@ -1107,7 +1201,7 @@ export function SegmentFormFields({
                 id={`${idPrefix}-venue`}
                 placeholder="e.g. Canlis"
                 value={form.venueName}
-                onChange={(e) => onChange({ venueName: e.target.value })}
+                onChange={(e) => pushAutoPatch({ venueName: e.target.value })}
               />
             </div>
             <div className="space-y-2">
@@ -1155,7 +1249,7 @@ export function SegmentFormFields({
               id={`${idPrefix}-ship`}
               placeholder="e.g. Symphony of the Seas"
               value={form.shipName}
-              onChange={(e) => pushCruisePatch({ shipName: e.target.value })}
+              onChange={(e) => pushAutoPatch({ shipName: e.target.value })}
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -1332,37 +1426,26 @@ export function SegmentFormFields({
 
         {/* Flight-specific advanced fields */}
         {isFlight && (
-          <>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor={`${idPrefix}-cabin`}>Cabin class</Label>
-                <Input
-                  id={`${idPrefix}-cabin`}
-                  placeholder="e.g. Economy, Business"
-                  value={form.cabinClass}
-                  onChange={(e) => onChange({ cabinClass: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${idPrefix}-seats`}>Seat(s)</Label>
-                <Input
-                  id={`${idPrefix}-seats`}
-                  placeholder="e.g. 12A, 12B"
-                  value={form.seatNumber}
-                  onChange={(e) => onChange({ seatNumber: e.target.value })}
-                />
-              </div>
-            </div>
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor={`${idPrefix}-baggage`}>Baggage info</Label>
+              <Label htmlFor={`${idPrefix}-cabin`}>Cabin class</Label>
               <Input
-                id={`${idPrefix}-baggage`}
-                placeholder="e.g. 1 checked bag included"
-                value={form.baggageInfo}
-                onChange={(e) => onChange({ baggageInfo: e.target.value })}
+                id={`${idPrefix}-cabin`}
+                placeholder="e.g. Economy, Business"
+                value={form.cabinClass}
+                onChange={(e) => onChange({ cabinClass: e.target.value })}
               />
             </div>
-          </>
+            <div className="space-y-2">
+              <Label htmlFor={`${idPrefix}-seats`}>Seat(s)</Label>
+              <Input
+                id={`${idPrefix}-seats`}
+                placeholder="e.g. 12A, 12B"
+                value={form.seatNumber}
+                onChange={(e) => onChange({ seatNumber: e.target.value })}
+              />
+            </div>
+          </div>
         )}
 
         {/* Train-specific advanced fields */}
@@ -1525,11 +1608,7 @@ export function SegmentFormFields({
                 isCarRental ? "e.g. Hertz, Enterprise" : "e.g. Expedia, Direct"
               }
               value={form.provider}
-              onChange={(e) =>
-                isCarRental
-                  ? pushCarRentalPatch({ provider: e.target.value })
-                  : onChange({ provider: e.target.value })
-              }
+              onChange={(e) => pushAutoPatch({ provider: e.target.value })}
             />
           </div>
         )}
