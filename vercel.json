@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "git log -1 --pretty=%B | grep -qE '\\[skip ci\\]'",
+  "ignoreCommand": "git log -1 --pretty=%s | grep -qE '\\[skip ci\\]'",
   "buildCommand": "cd ../.. && pnpm turbo build --filter=@itinly/web",
   "redirects": [
     {
