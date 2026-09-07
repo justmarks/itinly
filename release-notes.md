@@ -1,3 +1,27 @@
+# itinly v1.6.0
+
+Booking confirmations that arrive as several emails now collapse into one segment that keeps **every confirmation number** — book two rooms at the same hotel or three seats on the same flight as separate reservations, and the merged segment lists all the confirmation codes comma-separated, the same way it already combined seat assignments. The segment **Details** field now **saves even when you don't enter a price** — a flight note like "Premium Economy, 2 checked bags" no longer vanishes on save just because the cost was left blank. And **label-scoped Gmail scans stop hiding older bookings**: scanning a Gmail label now returns every matching email regardless of age, instead of quietly dropping anything more than a year old.
+
+## Smarter email scanning
+
+- **Confirmation numbers combine across duplicate emails.** When multiple emails describe the same booking with different confirmation numbers — two rooms at one hotel for the same nights, three tickets on the same flight — itinly now merges them into a single segment and combines all the confirmation codes into one comma-separated value (deduped), mirroring how it already merged multiple seat assignments. Hotels group by venue + check-in/check-out so separate room bookings for the same stay land as one entry; flights group by route + date.
+- **Label scans no longer skip anything older than a year.** A label-scoped Gmail scan previously applied a 365-day age filter that silently excluded older confirmations sitting in the label. Scanning a label now surfaces every booking in it, however old.
+
+## Segment editor
+
+- **The Details field persists without a price.** The free-form Details note on a segment is stored alongside its cost, and the form used to drop it entirely unless you also filled in an amount — so a flight's baggage/cabin note typed without a fare was lost on save. Details now save on their own; a note without a price shows as a plain "Details" line (no misleading "$0.00") and doesn't clutter the Costs tab or exports with a zero-dollar row.
+
+## Under the hood
+
+- **Vercel skip-ci marker matches the commit subject.** The `[skip ci]` deploy-skip check now reads the commit subject line rather than the full body, so back-merges and no-op chores skip Vercel as intended.
+- **Tests grew to 1,082** across 67 test suites — new coverage for the cross-email confirmation-code merge, the hotel/flight dedup keys, and the details-only cost persistence + aggregation exclusion.
+
+## Thanks
+
+A tighten-the-bolts release for email scanning and the segment form: confirmations stop losing information when they arrive piecemeal, older labeled bookings stop hiding, and a note typed without a price finally sticks.
+
+---
+
 # itinly v1.5.0
 
 The segment editor got smart: **flights and transfers auto-title themselves** (`JFK → NRT (JL 5)`, `Car service — Hotel pickup`), the **airport typeahead searches 1,178 airports** by code, city, name, or alias, the departure/arrival **city auto-fills from the airport you pick**, and edits **save on blur** instead of forcing a Save click. Email scanning is **~3× faster** — emails now parse in parallel batches — and the parser **skips marketing blasts and pre-trip reminder emails** that used to produce junk segments. **Trips advance their own status** as their dates arrive (planning → active → completed), so your list stays honest without manual bookkeeping. Plus PDF exports can now **omit costs**, the mobile map stops flashing Japan while it geocodes, and a Deno-based crawler that was flooding Sentry with unactionable errors is filtered out.

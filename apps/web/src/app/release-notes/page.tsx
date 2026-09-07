@@ -31,6 +31,90 @@ export default function ReleaseNotesPage(): React.JSX.Element {
           <section className="space-y-6">
             <header className="space-y-1">
               <h2 className="text-2xl font-semibold tracking-tight">
+                v1.6.0 — Confirmation numbers combined, details that stick, wider label scans
+              </h2>
+              <p className="text-sm text-muted-foreground">September 7, 2026</p>
+            </header>
+
+            <p>
+              Booking confirmations that arrive as several emails now collapse
+              into one segment that keeps{" "}
+              <strong>every confirmation number</strong> — book two rooms at the
+              same hotel or three seats on the same flight as separate
+              reservations, and the merged segment lists all the codes
+              comma-separated, the same way it already combined seat
+              assignments. The segment <strong>Details</strong> field now{" "}
+              <strong>saves even when you don&apos;t enter a price</strong> — a
+              flight note like &ldquo;Premium Economy, 2 checked bags&rdquo; no
+              longer vanishes on save just because the cost was left blank. And{" "}
+              <strong>label-scoped Gmail scans stop hiding older bookings</strong>
+              : scanning a label now returns every matching email regardless of
+              age.
+            </p>
+
+            <Subsection title="Smarter email scanning">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Confirmation numbers combine across duplicate
+                  emails.</strong> When multiple emails describe the same
+                  booking with different confirmation numbers — two rooms at one
+                  hotel for the same nights, three tickets on the same flight —
+                  itinly merges them into a single segment and combines all the
+                  confirmation codes into one comma-separated value (deduped),
+                  mirroring how it already merged multiple seat assignments.
+                  Hotels group by venue + check-in / check-out; flights group by
+                  route + date. (<PrLink number={435} />)
+                </li>
+                <li>
+                  <strong>Label scans no longer skip anything older than a
+                  year.</strong> A label-scoped Gmail scan previously applied a
+                  365-day age filter that silently excluded older confirmations
+                  in the label. Scanning a label now surfaces every booking in
+                  it, however old. (<PrLink number={434} />)
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Segment editor">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>The Details field persists without a price.</strong>{" "}
+                  The free-form Details note is stored alongside a segment&apos;s
+                  cost, and the form used to drop it unless you also filled in an
+                  amount — so a flight&apos;s baggage / cabin note typed without a
+                  fare was lost on save. Details now save on their own; a note
+                  without a price shows as a plain &ldquo;Details&rdquo; line (no
+                  misleading &ldquo;$0.00&rdquo;) and doesn&apos;t clutter the
+                  Costs tab or exports with a zero-dollar row. (<PrLink number={436} />)
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Under the hood">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Vercel skip-ci marker matches the commit
+                  subject.</strong> The{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">
+                    [skip ci]
+                  </code>{" "}
+                  deploy-skip check now reads the commit subject line rather than
+                  the full body, so back-merges and no-op chores skip Vercel as
+                  intended. (<PrLink number={433} />)
+                </li>
+                <li>
+                  <strong>Tests grew to 1,082</strong> across 67 test suites —
+                  new coverage for the cross-email confirmation-code merge, the
+                  hotel / flight dedup keys, and the details-only cost
+                  persistence + aggregation exclusion.
+                </li>
+              </ul>
+            </Subsection>
+          </section>
+
+          <section className="space-y-6">
+            <header className="space-y-1">
+              <h2 className="text-2xl font-semibold tracking-tight">
                 v1.5.0 — Smarter segment editor, 3× faster scans, self-advancing trips
               </h2>
               <p className="text-sm text-muted-foreground">July 23, 2026</p>
