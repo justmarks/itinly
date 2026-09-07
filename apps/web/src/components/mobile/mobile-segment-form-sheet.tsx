@@ -19,6 +19,7 @@ import {
   defaultEndDate,
   getTypeFlags,
   resolveSegmentTitle,
+  buildSegmentCost,
   type SegmentFormState,
 } from "@/components/segment-form-fields";
 import { computeDayCityUpdateFromSegmentForm } from "@/lib/segment-day-city";
@@ -194,14 +195,9 @@ function SegmentFormBody({
   const handleSave = () => {
     if (!canSave) return;
 
-    const cost =
-      form.costAmount && parseFloat(form.costAmount) >= 0
-        ? {
-            amount: parseFloat(form.costAmount),
-            currency: form.costCurrency,
-            details: form.costDetails || undefined,
-          }
-        : undefined;
+    // `buildSegmentCost` keeps a details-only entry (Details filled, no price)
+    // by defaulting the amount to 0 — otherwise the note would be dropped.
+    const cost = buildSegmentCost(form);
 
     // Snapshot before either mutation so the day-state check reflects
     // the pre-mutation cache (the segment hasn't been added/edited yet).

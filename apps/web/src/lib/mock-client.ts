@@ -1724,7 +1724,9 @@ export class MockApiClient extends ApiClient {
 
     const items = trip.days.flatMap((day) =>
       day.segments
-        .filter((s) => s.cost)
+        // Skip amount-0 costs — those carry only a Details note, not a price
+        // (mirrors the server's /costs filter).
+        .filter((s) => s.cost && s.cost.amount > 0)
         .map((s) => ({
           segmentId: s.id,
           category: s.type,

@@ -818,6 +818,36 @@ describe("Cost Summary", () => {
     expect(res.body.totalsByCurrency.USD).toBeCloseTo(4704.05);
     expect(res.body.totalsByCurrency.EUR).toBeCloseTo(74.97);
   });
+
+  it("stores a details-only cost (amount 0) but excludes it from the aggregation", async () => {
+    // The "Details" form field is persisted as cost.details, so a segment can
+    // carry a note with no price. Those must survive the save but must NOT
+    // appear as "$0.00" lines in the costs summary.
+    await request(app)
+      .post(`/api/v1/trips/${tripId}/segments`)
+      .send({
+        date: "2025-12-19",
+        type: "flight",
+        title: "Flight note only",
+        cost: {
+          amount: 0,
+          currency: "USD",
+          details: "Premium Economy, 2 checked bags",
+        },
+      });
+
+    // Segment keeps the details…
+    const tripRes = await request(app).get(`/api/v1/trips/${tripId}`);
+    const seg = tripRes.body.days
+      .flatMap((d: { segments: unknown[] }) => d.segments)
+      .find((s: { title: string }) => s.title === "Flight note only");
+    expect(seg.cost.details).toBe("Premium Economy, 2 checked bags");
+
+    // …but the costs endpoint doesn't list a $0 line for it.
+    const res = await request(app).get(`/api/v1/trips/${tripId}/costs`);
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(0);
+  });
 });
 
 describe("Todo routes", () => {
