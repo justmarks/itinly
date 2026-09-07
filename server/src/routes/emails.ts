@@ -126,8 +126,11 @@ export interface EmailRoutesOptions {
  * Generate a dedup key for a parsed segment.
  * Segments with the same key are considered duplicates to be merged.
  */
-function segmentDedupeKey(seg: ParsedSegment): string {
-  // Flights: same route + date
+export function segmentDedupeKey(seg: ParsedSegment): string {
+  // Flights: same route + date. The confirmation code is intentionally NOT
+  // part of the key — a party booked as several PNRs on the same flight (3
+  // separate ticket confirmations) should collapse into one segment, with the
+  // codes combined by `mergeSegments`.
   if (seg.type === "flight" && seg.routeCode) {
     return `flight:${seg.date}:${seg.routeCode}`;
   }
@@ -136,6 +139,15 @@ function segmentDedupeKey(seg: ParsedSegment): string {
   }
   if (seg.type === "flight" && seg.departureCity && seg.arrivalCity) {
     return `flight:${seg.date}:${seg.departureCity}-${seg.arrivalCity}`;
+  }
+  // Hotels: same venue + same stay (check-in + check-out) is one stay,
+  // regardless of confirmation code. Booking two rooms for the same nights
+  // yields two confirmation numbers for what the itinerary should show as a
+  // single hotel segment — key on venue+dates so they group, and let
+  // `mergeSegments` combine the confirmation codes (comma-separated). Keying
+  // on the confirmation code here would split the rooms into two segments.
+  if (seg.type === "hotel" && seg.venueName) {
+    return `hotel:${seg.date}:${seg.endDate ?? ""}:${normStr(seg.venueName)}`;
   }
   // Confirmation code match: same type + date + confirmation
   if (seg.confirmationCode) {
@@ -149,7 +161,7 @@ function segmentDedupeKey(seg: ParsedSegment): string {
  * Merge two duplicate segments, combining data from both.
  * The "winner" keeps its fields; the "donor" fills in blanks and appends seat numbers.
  */
-function mergeSegments(
+export function mergeSegments(
   a: ParsedSegment & { emailId?: string },
   b: ParsedSegment & { emailId?: string },
 ): ParsedSegment & { emailId?: string } {
@@ -157,10 +169,16 @@ function mergeSegments(
 
   // Combine seat numbers
   if (b.seatNumber) {
-    const existingSeats = new Set((a.seatNumber || "").split(",").map((s) => s.trim()).filter(Boolean));
-    const newSeats = b.seatNumber.split(",").map((s) => s.trim()).filter(Boolean);
-    for (const s of newSeats) existingSeats.add(s);
-    merged.seatNumber = [...existingSeats].join(", ");
+    merged.seatNumber = unionCommaValues(a.seatNumber, b.seatNumber);
+  }
+
+  // Combine confirmation codes — the same booking can arrive as several
+  // emails carrying distinct confirmation numbers (2 rooms at one hotel, 3
+  // ticket confirmations on one flight). Union them comma-separated, exactly
+  // like seats, so no confirmation number is lost when the segments merge.
+  // (This is why `confirmationCode` is NOT in `fillFields` below.)
+  if (b.confirmationCode) {
+    merged.confirmationCode = unionCommaValues(a.confirmationCode, b.confirmationCode);
   }
 
   // Take higher party size
@@ -170,7 +188,7 @@ function mergeSegments(
 
   // Fill in missing fields from b
   const fillFields = [
-    "city", "venueName", "address", "confirmationCode", "provider",
+    "city", "venueName", "address", "provider",
     "carrier", "routeCode", "departureCity", "arrivalCity", "phone",
     "url", "startTime", "endTime", "endDate", "breakfastIncluded", "cabinClass", "baggageInfo",
     "shipName",
@@ -210,6 +228,26 @@ function mergeSegments(
 function normStr(s: string | undefined): string {
   return (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
+
+/**
+ * Union two comma-separated multi-value strings — seat numbers or confirmation
+ * codes — trimming each entry, dropping blanks, and de-duplicating while
+ * preserving first-seen order. Used both when merging two parsed segments
+ * across a scan (`mergeSegments`) and when merging a parsed segment onto an
+ * existing itinerary segment (`applySegmentFields`), so a second booking's
+ * confirmation number / seat is appended rather than clobbered.
+ */
+function unionCommaValues(a: string | undefined, b: string | undefined): string {
+  const set = new Set((a || "").split(",").map((s) => s.trim()).filter(Boolean));
+  for (const v of (b || "").split(",").map((s) => s.trim()).filter(Boolean)) {
+    set.add(v);
+  }
+  return [...set].join(", ");
+}
+
+/** Segment fields that carry comma-separated multi-values and should be unioned
+ *  (rather than fill-or-replace) when merging onto an existing segment. */
+const UNION_FIELDS = new Set<string>(["confirmationCode", "seatNumber"]);
 
 /** Lowercase alphanumeric word tokens, dropping empties. */
 function tokens(s: string | undefined): Set<string> {
@@ -615,6 +653,16 @@ function applySegmentFields(
     const eEmpty = eVal === undefined || eVal === null || eVal === "";
     if (overwrite || eEmpty) {
       existing[field] = pVal;
+    } else if (
+      UNION_FIELDS.has(field) &&
+      typeof pVal === "string" &&
+      typeof eVal === "string"
+    ) {
+      // Merge (non-overwrite) onto an existing segment that already carries a
+      // value: union the comma-separated multi-values so a second booking's
+      // confirmation number / seat is appended rather than dropped. (Replace
+      // still overwrites via the branch above.)
+      existing[field] = unionCommaValues(eVal, pVal);
     }
   }
 
@@ -638,7 +686,7 @@ function applySegmentFields(
  * Deduplicate parsed segments across all email results.
  * Modifies results in place.
  */
-function deduplicateResults(results: EmailScanResult[]): void {
+export function deduplicateResults(results: EmailScanResult[]): void {
   // Collect all segments with their email context
   const allSegments: Array<{ seg: ParsedSegment & { emailId: string }; resultIdx: number; segIdx: number }> = [];
   for (let ri = 0; ri < results.length; ri++) {
