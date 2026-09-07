@@ -55,6 +55,9 @@ function fmtUsd(amount: number) {
  */
 function formatCost(cost?: { amount: number; currency: string; details?: string }) {
   if (!cost) return null;
+  // 0 amount = "no price" (cost object carries only a Details note) — don't
+  // render "$0.00" on the card.
+  if (cost.amount <= 0) return null;
   const usd = convertToUsd(cost.amount, cost.currency);
   if (usd !== undefined) return fmtUsd(usd);
   return formatCurrency(cost.amount, cost.currency);

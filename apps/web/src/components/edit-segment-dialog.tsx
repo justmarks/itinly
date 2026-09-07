@@ -26,6 +26,7 @@ import {
   getTypeFlags,
   defaultEndDate,
   resolveSegmentTitle,
+  buildSegmentCost,
   type SegmentFormState,
 } from "@/components/segment-form-fields";
 
@@ -145,18 +146,12 @@ export function EditSegmentDialog({
     // no cost, or an existing cost-less segment that still has no cost —
     // we omit the field entirely so the patch stays minimal and the
     // history diff doesn't note a no-op cost change.
+    // `buildSegmentCost` keeps a details-only entry (Details filled, no price)
+    // by defaulting the amount to 0 — otherwise the note would be dropped.
     const hadCost = Boolean(segment.cost);
-    const filledCost = Boolean(form.costAmount) && parseFloat(form.costAmount) >= 0;
+    const built = buildSegmentCost(form);
     const cost: { amount: number; currency: string; details?: string } | null | undefined =
-      filledCost
-        ? {
-            amount: parseFloat(form.costAmount),
-            currency: form.costCurrency,
-            details: form.costDetails || undefined,
-          }
-        : hadCost
-          ? null
-          : undefined;
+      built ?? (hadCost ? null : undefined);
 
     const updates: Record<string, unknown> = {
       segmentId: segment.id,

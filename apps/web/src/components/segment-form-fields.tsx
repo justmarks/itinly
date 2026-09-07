@@ -303,6 +303,37 @@ export function resolveSegmentTitle(form: SegmentFormState): string {
 }
 
 /**
+ * Builds the `cost` object to persist from the form's cost fields, or
+ * `undefined` when there's nothing to store.
+ *
+ * Crucially, the free-form **Details** field is stored as `cost.details`,
+ * so a segment can carry details with NO price (e.g. a flight note like
+ * "Premium Economy, 2 checked bags"). Earlier this only built a cost when a
+ * positive amount was present, which silently dropped details-only input on
+ * save. We now keep the cost whenever EITHER an amount or details is filled,
+ * defaulting the amount to 0 for details-only entries. Display + cost-total
+ * surfaces treat a 0 amount as "no price" so a note doesn't render as
+ * "$0.00" or show up as a $0 line in the Costs tab.
+ *
+ * Shared by the desktop add/edit dialogs and the mobile form sheet so the
+ * three save paths can't drift.
+ */
+export function buildSegmentCost(
+  form: SegmentFormState,
+): { amount: number; currency: string; details?: string } | undefined {
+  const amountRaw = form.costAmount.trim();
+  const parsed = amountRaw ? parseFloat(amountRaw) : NaN;
+  const hasAmount = amountRaw !== "" && !isNaN(parsed) && parsed >= 0;
+  const details = form.costDetails.trim();
+  if (!hasAmount && !details) return undefined;
+  return {
+    amount: hasAmount ? parsed : 0,
+    currency: form.costCurrency,
+    ...(details ? { details } : {}),
+  };
+}
+
+/**
  * Picks a city to associate with the segment, in priority order:
  *   1. Explicit `city` field (used by hotel, restaurant, activity, etc.)
  *   2. `arrivalCity` (flight, train, transport, cruise — destination is

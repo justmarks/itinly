@@ -1074,7 +1074,10 @@ export function createTripRoutes(options: TripRoutesOptions): Router {
 
     for (const day of trip.days) {
       for (const seg of day.segments) {
-        if (seg.cost) {
+        // A cost with amount 0 exists only to carry a free-form Details note
+        // (a segment can have details without a price). Those aren't real
+        // costs — skip them so the Costs tab doesn't list "$0.00" lines.
+        if (seg.cost && seg.cost.amount > 0) {
           const amountUsd = convertToUsd(seg.cost.amount, seg.cost.currency);
           // Prefer the segment's own city; fall back to the trip day's city
           // so the cost table can render "City: Activity" entries.
