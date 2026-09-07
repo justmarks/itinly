@@ -1,5 +1,6 @@
 import {
   GMAIL_SYSTEM_LABELS,
+  buildScanListParams,
   decodeBase64Url,
   extractBody,
   htmlToText,
@@ -98,6 +99,57 @@ describe("resolveLabelId", () => {
 
   it("returns null against an empty label list", () => {
     expect(resolveLabelId("Travel", [])).toBeNull();
+  });
+});
+
+// ─── Scan list-param construction ───────────────────────────────────────────
+
+describe("buildScanListParams", () => {
+  describe("label scan", () => {
+    it("filters by labelIds", () => {
+      const params = buildScanListParams("Label_123", 365);
+      expect(params.labelIds).toEqual(["Label_123"]);
+    });
+
+    it("applies NO age constraint (regression: cruise booked >1yr out was dropped)", () => {
+      // The bug: a label-scoped scan carried `newer_than:365d`, so the
+      // earliest-booked confirmation under a trip label — routinely older than
+      // a year for cruises — was silently excluded. The label path must not
+      // constrain by age at all.
+      const params = buildScanListParams("Label_123", 365);
+      expect(params.q).toBe("");
+      expect(params.q).not.toContain("newer_than");
+    });
+
+    it("ignores newerThanDays entirely on the label path", () => {
+      // Even a tight window must not leak into a label scan.
+      const params = buildScanListParams("Label_123", 7);
+      expect(params.q).not.toContain("newer_than");
+    });
+  });
+
+  describe("keyword scan (no label)", () => {
+    it("does not set labelIds", () => {
+      const params = buildScanListParams(null, 365);
+      expect(params.labelIds).toBeUndefined();
+    });
+
+    it("keeps the age constraint to bound a broad keyword sweep", () => {
+      const params = buildScanListParams(null, 365);
+      expect(params.q).toContain("newer_than:365d");
+    });
+
+    it("honours a custom newerThanDays", () => {
+      const params = buildScanListParams(null, 30);
+      expect(params.q).toContain("newer_than:30d");
+    });
+
+    it("includes the subject/sender heuristics and receipt excludes", () => {
+      const params = buildScanListParams(null, 365);
+      expect(params.q).toContain("subject:(");
+      expect(params.q).toContain("from:(");
+      expect(params.q).toContain("-from:(amazon.com");
+    });
   });
 });
 
