@@ -192,7 +192,8 @@ export function tripToOneNoteHtml(
     const costItems: CostSummaryItem[] = [];
     for (const day of trip.days) {
       for (const seg of day.segments) {
-        if (seg.cost) {
+        // amount 0 = a Details-only note, not a real cost — skip it.
+        if (seg.cost && seg.cost.amount > 0) {
           costItems.push({
             category: seg.type,
             description: seg.title,

@@ -25,6 +25,7 @@ import {
   EMPTY_FORM_STATE,
   defaultEndDate,
   resolveSegmentTitle,
+  buildSegmentCost,
   type SegmentFormState,
 } from "@/components/segment-form-fields";
 
@@ -74,14 +75,10 @@ export function AddSegmentDialog({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const cost =
-      form.costAmount && parseFloat(form.costAmount) > 0
-        ? {
-            amount: parseFloat(form.costAmount),
-            currency: form.costCurrency,
-            details: form.costDetails || undefined,
-          }
-        : undefined;
+    // Keep a details-only entry (no price) — `buildSegmentCost` stores the
+    // free-form Details field under `cost.details` even when the amount is
+    // blank. Previously this dropped details typed without a price.
+    const cost = buildSegmentCost(form);
 
     // Snapshot before the mutation so the day-state check reflects the
     // pre-mutation cache (the new segment isn't in `day.segments` yet).

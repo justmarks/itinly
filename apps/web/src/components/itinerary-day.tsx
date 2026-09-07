@@ -117,6 +117,11 @@ function fmtDate(iso?: string) {
 
 function formatCost(cost?: { amount: number; currency: string; details?: string }) {
   if (!cost) return null;
+  // A 0 amount means "no price" — the cost object only exists to carry the
+  // free-form Details note (a segment can have details without a price).
+  // Return null so we don't render a misleading "$0.00"; the details render
+  // on their own below.
+  if (cost.amount <= 0) return null;
   // Delegate to the shared `formatCurrency` helper so the symbol set +
   // 2-decimal rule stay in one place. The old inline copy stripped
   // trailing zeros (288.4 instead of 288.40), which read as truncated
@@ -422,12 +427,13 @@ function SegmentRow({
           {segment.confirmationCode && (
             <span className="font-mono text-xs">#{segment.confirmationCode}</span>
           )}
-          {cost && (
+          {(cost || segment.cost?.details) && (
             <span className="font-medium text-foreground">
               {cost}
               {segment.cost?.details && (
-                <span className="ml-1 font-normal text-muted-foreground">
-                  · {segment.cost.details}
+                <span className="font-normal text-muted-foreground">
+                  {cost ? " · " : ""}
+                  {segment.cost.details}
                 </span>
               )}
             </span>

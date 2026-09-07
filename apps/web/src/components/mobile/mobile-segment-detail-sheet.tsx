@@ -71,6 +71,9 @@ function fmtUsd(amount: number) {
  */
 function formatCost(cost?: { amount: number; currency: string; details?: string }) {
   if (!cost) return null;
+  // 0 amount = "no price" — the cost object exists only to carry the Details
+  // note. Return null so we don't show "$0.00"; details render on their own.
+  if (cost.amount <= 0) return null;
   const usd = convertToUsd(cost.amount, cost.currency);
   if (usd !== undefined) return fmtUsd(usd);
   return formatCurrency(cost.amount, cost.currency);
@@ -482,8 +485,8 @@ export function MobileSegmentDetailSheet({
           </Row>
         )}
 
-        {cost && (
-          <Row label="Cost">
+        {(cost || (showCosts && segment.cost?.details)) && (
+          <Row label={cost ? "Cost" : "Details"}>
             <p className="text-base font-semibold">
               {cost}
               {costOriginal && (
@@ -492,8 +495,15 @@ export function MobileSegmentDetailSheet({
                 </span>
               )}
               {segment.cost?.details && (
-                <span className="ml-1 text-xs font-normal text-muted-foreground">
-                  · {segment.cost.details}
+                <span
+                  className={
+                    cost
+                      ? "ml-1 text-xs font-normal text-muted-foreground"
+                      : "text-sm font-normal"
+                  }
+                >
+                  {cost ? "· " : ""}
+                  {segment.cost.details}
                 </span>
               )}
             </p>
