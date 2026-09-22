@@ -245,9 +245,8 @@ export function EmailScanDialog({
     open && emailGranted,
     effectiveProvider ?? undefined,
   );
-  const { data: pendingData, isLoading: pendingLoading } = usePendingEmails(
-    open && emailGranted,
-  );
+  const { data: pendingData, isLoading: pendingLoading, error: pendingError } =
+    usePendingEmails(open && emailGranted);
   const { data: trips } = useTrips();
   const scanEmails = useStreamingScanEmails();
   // Live progress while the SSE stream is in flight. `total` is the
@@ -313,6 +312,41 @@ export function EmailScanDialog({
       setStep("config");
     }
   }, [open, emailGranted, emailProviderLoading, pendingLoading, pendingData, step]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auth-error bounce: when the labels or pending fetch fails because
+  // the email connection is stale (timed out / refresh-token rejected /
+  // never linked), don't strand the user on the config screen with a
+  // passive "reconnect in Settings" banner and a still-enabled Start
+  // scan button. Drop them on the matching Connect screen — the same
+  // reconnect surfaces `handleScan` routes to on these codes, and the
+  // same pattern the mobile sheet uses. Toasts are wrong here: stale
+  // auth needs a persistent CTA the user can act on (CLAUDE.md's
+  // errors/toasts/banners table).
+  useEffect(() => {
+    if (step !== "config") return;
+    const authKind = (e: unknown): "not-connected" | "needs-scope" | null => {
+      const err = e as { status?: number; body?: { code?: string } } | null;
+      if (!err || typeof err.status !== "number") return null;
+      const code = err.body?.code;
+      // Supabase user with no usable email connection (no row, or the
+      // token refresh failed) → provider-agnostic reconnect screen.
+      if (err.status === 401 && code === "EMAIL_NOT_CONNECTED") {
+        return "not-connected";
+      }
+      // Legacy Gmail link revoked / scope missing, or any other 401/403
+      // the "Connect Gmail" flow can repair.
+      if (
+        err.status === 403 ||
+        err.status === 401 ||
+        code === "GMAIL_SCOPE_REQUIRED"
+      ) {
+        return "needs-scope";
+      }
+      return null;
+    };
+    const kind = authKind(labelsError) ?? authKind(pendingError);
+    if (kind) setStep(kind);
+  }, [step, labelsError, pendingError]);
 
   /** Populate results + selections state from an array of EmailScanResult */
   const loadResultsIntoState = useCallback(
@@ -854,7 +888,15 @@ export function EmailScanDialog({
                 </label>
               </div>
 
-              {labelsError && (
+              {/* Only surface non-auth label failures here. Stale-auth
+                  errors (401/403) bounce to the Connect screen via the
+                  effect above, so a passive banner would just flash
+                  before the step change. */}
+              {labelsError &&
+                (() => {
+                  const status = (labelsError as { status?: number }).status;
+                  return status !== 401 && status !== 403;
+                })() && (
                 <div
                   className="flex items-start gap-2 rounded-md border p-2.5 text-xs"
                   style={statusBadgeStyle("warn")}
