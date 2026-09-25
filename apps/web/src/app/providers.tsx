@@ -123,7 +123,24 @@ export function Providers({
   // Idempotent — safe to call from a useEffect that re-runs on HMR.
   useEffect(() => {
     initMonitoring();
-    polyfillCountryFlagEmojis();
+    // The polyfill feature-detects emoji support by drawing to a
+    // <canvas> and reading getImageData(...).data. Fingerprint-hardened
+    // browsers (Brave farbling, Firefox resistFingerprinting, some
+    // privacy extensions) make canvas getContext/getImageData return
+    // null, so the library throws "Cannot read properties of null
+    // (reading 'data')". Running inside this mount effect, that throw
+    // would propagate to the error boundary and blank the whole app.
+    // Failing is purely cosmetic — flags fall back to country-code
+    // letters — so swallow it. Non-fatal background side-effect →
+    // console.warn per the errors/toasts/banners convention, no toast.
+    try {
+      polyfillCountryFlagEmojis();
+    } catch (err) {
+      console.warn(
+        "[flag-polyfill] country-flag-emoji polyfill skipped (canvas unavailable):",
+        err,
+      );
+    }
     logPushDiagnostics();
   }, []);
 
