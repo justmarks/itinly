@@ -84,7 +84,18 @@ export function CoverPhotoPreview({
       ) : loadFailed ? (
         <PreviewWarning>
           Found a photo for “{location?.city}”, but it couldn&apos;t be
-          loaded on this device.
+          loaded on this device.{" "}
+          {/* Lets a user check whether the image itself is reachable
+              outside the app — narrows a report down to Wikimedia vs.
+              the page's loading rules. */}
+          <a
+            href={failedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+          >
+            Open the photo
+          </a>
         </PreviewWarning>
       ) : (
         debounced &&
