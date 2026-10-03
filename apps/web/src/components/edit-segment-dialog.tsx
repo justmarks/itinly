@@ -10,6 +10,7 @@ import {
 } from "@itinly/api-client";
 import type { Segment, SegmentType, Trip } from "@itinly/shared";
 import { toastMutationError } from "@/lib/api-error";
+import { clearEmptySegmentFields } from "@/lib/segment-update";
 import { useConfirm } from "@/lib/confirm-dialog";
 import { computeDayCityUpdateFromSegmentForm } from "@/lib/segment-day-city";
 import {
@@ -285,12 +286,16 @@ export function EditSegmentDialog({
     });
 
     onOpenChange(false);
-    updateSegment.mutate(updates as Parameters<typeof updateSegment.mutate>[0], {
-      onSuccess: () => {
-        if (dayCityUpdate) updateDay.mutate(dayCityUpdate);
+    // Fields the form left empty go out as `null` so the server clears them.
+    updateSegment.mutate(
+      clearEmptySegmentFields(updates) as Parameters<typeof updateSegment.mutate>[0],
+      {
+        onSuccess: () => {
+          if (dayCityUpdate) updateDay.mutate(dayCityUpdate);
+        },
+        onError: toastMutationError("save segment"),
       },
-      onError: toastMutationError("save segment"),
-    });
+    );
   };
 
   return (

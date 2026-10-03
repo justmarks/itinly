@@ -130,6 +130,16 @@ export interface SharedTripResponse {
   permission: string;
 }
 
+/**
+ * Patch body for `PUT /trips/:id/segments/:segmentId`. `null` clears a
+ * field (the server deletes it); an absent / `undefined` key leaves it
+ * unchanged — `JSON.stringify` drops `undefined`, so it can't mean "clear".
+ * `date` moves the segment to another day of the trip.
+ */
+export type SegmentUpdate = {
+  [K in keyof Segment]?: Segment[K] | null;
+} & { date?: string };
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -268,7 +278,7 @@ export class ApiClient {
   updateSegment(
     tripId: string,
     segmentId: string,
-    input: Partial<Segment>,
+    input: SegmentUpdate,
   ): Promise<Segment> {
     return this.request(`/trips/${tripId}/segments/${segmentId}`, {
       method: "PUT",

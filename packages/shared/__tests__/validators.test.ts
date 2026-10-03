@@ -314,6 +314,25 @@ describe("createSegmentSchema", () => {
 });
 
 describe("updateSegmentSchema", () => {
+  it("accepts null to clear optional fields", () => {
+    const result = updateSegmentSchema.safeParse({
+      address: null,
+      url: null,
+      startTime: null,
+      partySize: null,
+      breakfastIncluded: null,
+      departureAirport: null,
+      cancellationDeadline: null,
+      cost: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects null for title and type", () => {
+    expect(updateSegmentSchema.safeParse({ title: null }).success).toBe(false);
+    expect(updateSegmentSchema.safeParse({ type: null }).success).toBe(false);
+  });
+
   it("accepts partial updates", () => {
     const result = updateSegmentSchema.safeParse({ title: "Updated Title" });
     expect(result.success).toBe(true);

@@ -6,6 +6,7 @@ export type {
   XlsxImportResponse,
   PushStatusResponse,
   PushConfigResponse,
+  SegmentUpdate,
 } from "./client";
 export { ApiClientProvider, useApiClient } from "./provider";
 export {
