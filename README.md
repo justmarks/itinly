@@ -127,7 +127,7 @@ cd packages/shared && pnpm test
 cd server && pnpm test -- --testPathPattern="trips.test"
 ```
 
-Current coverage: **1104 tests** across 67 test suites.
+Current coverage: **1110 tests** across 68 test suites.
 
 This line is kept fresh by `scripts/update-test-count.mjs`. Before opening a PR that materially changes the test count, run `pnpm update-test-count`. CI fails the build when the line is stale (`pnpm check-test-count`).
 

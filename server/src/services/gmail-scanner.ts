@@ -1,6 +1,7 @@
 import { google, type gmail_v1 } from "googleapis";
 import { convert } from "html-to-text";
 import { debugEmailScan } from "../utils/debug-log";
+import { chooseBodyText } from "./body-selection";
 
 export interface RawEmail {
   id: string;
@@ -132,17 +133,16 @@ export function htmlToText(html: string): string {
 /**
  * Walk a Gmail MIME payload tree and return the best text body we can
  * reconstruct. Prefers `text/plain`; falls back to HTML (converted to text)
- * only when the plain-text parts are missing or whitespace — marketing
- * emails commonly ship a blank plain-text fallback alongside the real HTML.
+ * when the plain-text parts are missing, whitespace, a stub, or lack the
+ * booking facts the HTML carries (see `chooseBodyText`).
  */
 export function extractBody(payload: gmail_v1.Schema$MessagePart): string {
   const parts: { plain: string[]; html: string[] } = { plain: [], html: [] };
   collectTextParts(payload, parts);
 
-  const joinedPlain = parts.plain.join("\n").trim();
-  if (joinedPlain.length > 0) return parts.plain.join("\n");
-  if (parts.html.length > 0) return htmlToText(parts.html.join("\n"));
-  return "";
+  const plain = parts.plain.join("\n");
+  if (parts.html.length === 0) return plain.trim().length > 0 ? plain : "";
+  return chooseBodyText(plain, htmlToText(parts.html.join("\n")));
 }
 
 function collectTextParts(
