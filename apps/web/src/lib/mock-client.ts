@@ -9,6 +9,7 @@ import type {
   TripSummary,
   CostSummaryResponse,
   XlsxImportResponse,
+  SegmentUpdate,
 } from "@itinly/api-client";
 import type {
   Trip,
@@ -1654,7 +1655,7 @@ export class MockApiClient extends ApiClient {
   override updateSegment(
     tripId: string,
     segmentId: string,
-    input: Partial<Segment> & { date?: string },
+    input: SegmentUpdate,
   ): Promise<Segment> {
     const trip = this.trips.get(tripId);
     if (!trip) return Promise.reject(new Error("Trip not found"));
@@ -1676,7 +1677,13 @@ export class MockApiClient extends ApiClient {
       }
 
       const wasNeedsReview = seg.needsReview;
-      Object.assign(seg, segmentUpdates);
+      // `null` clears a field, matching the server route.
+      for (const [key, value] of Object.entries(segmentUpdates)) {
+        if (value === null) delete (seg as unknown as Record<string, unknown>)[key];
+        else if (value !== undefined) {
+          (seg as unknown as Record<string, unknown>)[key] = value;
+        }
+      }
       if (wasNeedsReview && seg.needsReview === false) {
         seg.source = "email_confirmed";
       }

@@ -367,9 +367,30 @@ export const createSegmentSchema = z.object({
 });
 
 /** Schema for updating a segment (all fields optional — partial update) */
-export const updateSegmentSchema = createSegmentSchema.extend({
+/**
+ * Every optional segment field accepts an explicit `null` on UPDATE — the
+ * wire-level "clear this field" signal (the route deletes the property).
+ * `undefined` can't carry that meaning: `JSON.stringify` strips it, so a
+ * field the user emptied in the editor was silently left unchanged and
+ * reappeared on the next refetch. `type` and `title` stay non-nullable.
+ */
+const clearableSegmentFields = Object.fromEntries(
+  Object.entries(createSegmentSchema.shape)
+    .filter(([key]) => key !== "type" && key !== "title")
+    .map(([key, schema]) => [key, (schema as z.ZodTypeAny).nullable()]),
+) as {
+  [K in Exclude<keyof typeof createSegmentSchema.shape, "type" | "title">]: z.ZodNullable<
+    (typeof createSegmentSchema.shape)[K]
+  >;
+};
+
+export const updateSegmentSchema = createSegmentSchema.extend(clearableSegmentFields).extend({
   // Additional fields editable on existing segments (not at creation)
-  cancellationDeadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD").optional(),
+  cancellationDeadline: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+    .nullable()
+    .optional(),
   needsReview: z.boolean().optional(),
   sortOrder: z.number().int().min(0).optional(),
   // Segments are stored inside TripDay, not on the segment itself. Accepting

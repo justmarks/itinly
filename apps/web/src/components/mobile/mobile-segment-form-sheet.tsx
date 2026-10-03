@@ -12,6 +12,7 @@ import {
 import type { Segment, SegmentType, Trip } from "@itinly/shared";
 import { Loader2, Trash2, X } from "lucide-react";
 import { toastMutationError } from "@/lib/api-error";
+import { clearEmptySegmentFields } from "@/lib/segment-update";
 import { useConfirm } from "@/lib/confirm-dialog";
 import {
   EMPTY_FORM_STATE,
@@ -353,8 +354,9 @@ function SegmentFormBody({
       updates.needsReview = false;
     }
 
+    // Fields the form left empty go out as `null` so the server clears them.
     updateSegment.mutate(
-      updates as Parameters<typeof updateSegment.mutate>[0],
+      clearEmptySegmentFields(updates) as Parameters<typeof updateSegment.mutate>[0],
       {
         onSuccess: () => {
           if (dayCityUpdate) updateDay.mutate(dayCityUpdate);

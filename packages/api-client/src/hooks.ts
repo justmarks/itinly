@@ -40,6 +40,7 @@ import type {
   TripSummary,
   CostSummaryResponse,
   SharedTripResponse,
+  SegmentUpdate,
 } from "./client";
 import { useApiClient } from "./provider";
 
@@ -261,7 +262,7 @@ export function useUpdateSegment(tripId: string) {
   const client = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { segmentId: string } & Partial<Segment>) => {
+    mutationFn: (input: { segmentId: string } & SegmentUpdate) => {
       const { segmentId, ...data } = input;
       return client.updateSegment(tripId, segmentId, data);
     },
@@ -289,7 +290,13 @@ export function useUpdateSegment(tripId: string) {
           }
         }
         if (existing && originalDate !== undefined) {
-          const patched = { ...existing, ...patch };
+          // `null` = cleared on the server; mirror it as an absent field.
+          const patched = { ...existing } as Record<string, unknown>;
+          for (const [key, value] of Object.entries(patch)) {
+            if (key === "date") continue;
+            if (value === null) delete patched[key];
+            else if (value !== undefined) patched[key] = value;
+          }
           const targetDate =
             (patch as { date?: string }).date ?? originalDate;
           queryClient.setQueryData<Trip>(queryKeys.trip(tripId), {
@@ -297,7 +304,7 @@ export function useUpdateSegment(tripId: string) {
             days: prev.days.map((d) => {
               const without = d.segments.filter((s) => s.id !== segmentId);
               if (d.date === targetDate) {
-                return { ...d, segments: [...without, patched] };
+                return { ...d, segments: [...without, patched as unknown as Segment] };
               }
               return { ...d, segments: without };
             }),
