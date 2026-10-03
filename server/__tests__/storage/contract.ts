@@ -116,6 +116,14 @@ export function runStorageProviderContract(harness: ContractHarness): void {
       expect((await storage.getTrip("trip-1"))?.title).toBe("Updated");
     });
 
+    it("round-trips coverLocation and clears it when unset", async () => {
+      await storage.saveTrip(makeTrip({ coverLocation: "Alhambra" }));
+      expect((await storage.getTrip("trip-1"))?.coverLocation).toBe("Alhambra");
+      expect((await storage.listTrips())[0]?.coverLocation).toBe("Alhambra");
+      await storage.saveTrip(makeTrip());
+      expect((await storage.getTrip("trip-1"))?.coverLocation).toBeUndefined();
+    });
+
     it("returns deep clones — mutating retrieved trip doesn't affect storage", async () => {
       await storage.saveTrip(makeTrip());
       const trip = (await storage.getTrip("trip-1"))!;

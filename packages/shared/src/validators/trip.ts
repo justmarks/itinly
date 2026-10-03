@@ -326,6 +326,11 @@ export const updateTripSchema = z.object({
   startDate: z.string().regex(isoDateRegex, "Must be YYYY-MM-DD").optional(),
   endDate: z.string().regex(isoDateRegex, "Must be YYYY-MM-DD").optional(),
   status: z.enum(TRIP_STATUSES).optional(),
+  /**
+   * City or attraction for the trip card's hero photo. `null` or an
+   * empty / whitespace-only string clears it (back to automatic).
+   */
+  coverLocation: z.string().trim().max(120).nullable().optional(),
 });
 
 /** Schema for creating a new segment */

@@ -309,8 +309,19 @@ export function useCityImage(
   city: string | undefined,
   country: string | undefined,
 ): CityImage | undefined {
+  return useCityImageLookup(city, country).image;
+}
+
+/**
+ * `useCityImage` plus whether the lookup is still running — lets the
+ * cover-photo picker tell "searching…" apart from "no photo found".
+ */
+export function useCityImageLookup(
+  city: string | undefined,
+  country: string | undefined,
+): { image: CityImage | undefined; isLoading: boolean } {
   const enabled = Boolean(city);
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["city-image", city, country],
     enabled,
     staleTime: Infinity,
@@ -322,6 +333,15 @@ export function useCityImage(
       // Track whether any of the lookups landed on a disambiguation
       // page so step 3 can walk its place-link list.
       let disambigTitle: string | undefined;
+
+      // 0) A comma-qualified name ("Granada, Nicaragua" — typical for a
+      //    user-picked cover location) is often the exact Wikipedia
+      //    title; try it before the bare head, which would land on the
+      //    better-known namesake.
+      if (cityHead !== city!.trim()) {
+        const qualified = pickImageFromSummary(await fetchSummary(city!.trim()));
+        if (qualified) return qualified;
+      }
 
       // 1) Try the raw title — fast path for unambiguous cities.
       const directSummary = await fetchSummary(cityHead);
@@ -393,7 +413,7 @@ export function useCityImage(
       return null;
     },
   });
-  return data ?? undefined;
+  return { image: data ?? undefined, isLoading: enabled && isLoading };
 }
 
 /**

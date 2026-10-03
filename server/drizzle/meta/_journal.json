@@ -64,6 +64,13 @@
       "when": 1779556219000,
       "tag": "0008_places",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779642619000,
+      "tag": "0009_trip_cover_location",
+      "breakpoints": true
     }
   ]
 }

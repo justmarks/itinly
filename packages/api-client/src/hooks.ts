@@ -120,16 +120,29 @@ export function useUpdateTrip(tripId: string) {
       const prevTrips = queryClient.getQueryData<TripSummary[]>(
         queryKeys.trips,
       );
+      // `coverLocation: null | ""` means "clear" on the wire; on the
+      // cached Trip that's an absent field.
+      const { coverLocation, ...rest } = input;
       if (prevTrip) {
-        queryClient.setQueryData<Trip>(queryKeys.trip(tripId), {
-          ...prevTrip,
-          ...input,
-        });
+        const nextTrip: Trip = { ...prevTrip, ...rest };
+        if (coverLocation !== undefined) {
+          if (coverLocation) nextTrip.coverLocation = coverLocation;
+          else delete nextTrip.coverLocation;
+        }
+        queryClient.setQueryData<Trip>(queryKeys.trip(tripId), nextTrip);
       }
       if (prevTrips) {
         queryClient.setQueryData<TripSummary[]>(
           queryKeys.trips,
-          prevTrips.map((t) => (t.id === tripId ? { ...t, ...input } : t)),
+          prevTrips.map((t) => {
+            if (t.id !== tripId) return t;
+            const next: TripSummary = { ...t, ...rest };
+            // Show a newly picked cover straight away. Clearing it needs
+            // the server's automatic pick, which arrives with the
+            // onSettled refetch.
+            if (coverLocation) next.primaryCity = coverLocation;
+            return next;
+          }),
         );
       }
       return { prevTrip, prevTrips };

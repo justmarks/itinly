@@ -60,6 +60,7 @@ import {
   AlertTriangle,
   MoreHorizontal,
   FileCode2,
+  ImageIcon,
   Share2,
   Trash2,
   Users,
@@ -77,6 +78,7 @@ import { TripHistory } from "@/components/trip-history";
 import { toast } from "sonner";
 import { EmailScanDialog } from "@/components/email-scan-dialog";
 import { HtmlImportDialog } from "@/components/html-import-dialog";
+import { CoverPhotoDialog } from "@/components/cover-photo-dialog";
 import { RequireAuth } from "@/components/require-auth";
 import { UserMenu } from "@/components/user-menu";
 import { useConfirm } from "@/lib/confirm-dialog";
@@ -424,7 +426,7 @@ function TripActionsMenu({
 }: {
   tripId: string;
   tripTitle: string;
-  trip: { id: string };
+  trip: Trip;
   onImportEmail: () => void;
   /** Whether to surface the destructive "Delete trip" entry. Owner-only. */
   canDelete: boolean;
@@ -547,6 +549,8 @@ function TripActionsMenu({
   const [selectedCalendarId, setSelectedCalendarId] = useState<string>("primary");
   const [removeStep, setRemoveStep] = useState<"confirm" | null>(null);
   const [deleteChoice, setDeleteChoice] = useState<"delete" | "keep">("delete");
+  // Same hoisting reason as the calendar dialogs above.
+  const [coverDialogOpen, setCoverDialogOpen] = useState(false);
 
   const refreshCalendarList = async (providerOverride?: CalendarProvider) => {
     const cals = await loadCalendars(providerOverride);
@@ -617,6 +621,10 @@ function TripActionsMenu({
           <DropdownMenuItem onSelect={onImportEmail}>
             <FileCode2 className="mr-2 h-4 w-4" />
             Import email
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setCoverDialogOpen(true)}>
+            <ImageIcon className="mr-2 h-4 w-4" />
+            Cover photo…
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuSub>
@@ -692,6 +700,11 @@ function TripActionsMenu({
         connectedProviders={connectedProviders}
         selectedProvider={selectedProvider}
         onProviderChange={handleProviderChange}
+      />
+      <CoverPhotoDialog
+        trip={trip}
+        open={coverDialogOpen}
+        onOpenChange={setCoverDialogOpen}
       />
     </>
   );

@@ -1087,6 +1087,9 @@ const SAMPLE_TRIPS: Trip[] = [
   {
     id: "demo-4",
     title: "Iceland Ring Road Adventure",
+    // Demonstrates the user-picked cover photo (an attraction rather than
+    // a city); the flag falls back to the itinerary's country.
+    coverLocation: "Skógafoss",
     startDate: "2026-07-18",
     endDate: "2026-07-22",
     status: "planning",
@@ -1492,7 +1495,14 @@ export class MockApiClient extends ApiClient {
   override updateTrip(tripId: string, input: UpdateTripInput): Promise<Trip> {
     const trip = this.trips.get(tripId);
     if (!trip) return Promise.reject(new Error("Trip not found"));
-    Object.assign(trip, input, { updatedAt: now() });
+    const { coverLocation, ...rest } = input;
+    Object.assign(trip, rest, { updatedAt: now() });
+    if (coverLocation !== undefined) {
+      // null / "" clears back to automatic, matching the server.
+      const next = coverLocation?.trim();
+      if (next) trip.coverLocation = next;
+      else delete trip.coverLocation;
+    }
     return Promise.resolve(structuredClone(trip));
   }
 

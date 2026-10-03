@@ -313,6 +313,12 @@ export interface Trip {
   /** Google Calendar ID this trip is synced to, if any. */
   calendarId?: string;
   /**
+   * User-chosen subject for the trip card's hero photo — a city
+   * ("Granada") or an attraction ("Alhambra"). Overrides the automatic
+   * most-days pick in `primaryLocationFor`. Unset = automatic.
+   */
+  coverLocation?: string;
+  /**
    * Version of the Trip JSON shape this document was last saved under. See
    * `CURRENT_TRIP_SCHEMA_VERSION`. Older persisted trips may not have this
    * field yet; storage layers normalise them on read via `migrateTrip`.
