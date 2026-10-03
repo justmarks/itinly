@@ -12,6 +12,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { isWikimediaImageHost } from "@/lib/wikimedia-hosts";
 
 export interface CityImage {
   url: string;
@@ -290,8 +291,8 @@ async function searchForArticleTitle(
 }
 
 /**
- * Wikimedia's standard thumbnail widths. upload.wikimedia.org pre-renders
- * and caches these; other widths are rendered on demand and are subject to
+ * Wikimedia's standard thumbnail widths. Wikimedia's image hosts pre-render
+ * and cache these; other widths are rendered on demand and are subject to
  * much stricter rate limits, so a non-standard URL (the summary endpoint
  * hands back `320px-…`) can come back as an error and leave the trip card
  * with a broken image.
@@ -301,7 +302,7 @@ const WIKIMEDIA_THUMB_STEPS = [120, 250, 330, 500, 960, 1280] as const;
 const HERO_THUMB_WIDTH = 330;
 
 /**
- * Snap a `…/thumb/…/<N>px-<file>` upload.wikimedia.org URL up to the next
+ * Snap a `…/thumb/…/<N>px-<file>` Wikimedia image URL up to the next
  * standard thumbnail width. Non-thumbnail URLs (originals, other hosts)
  * are returned unchanged.
  */
@@ -312,7 +313,7 @@ export function standardizeWikimediaThumbUrl(url: string): string {
   } catch {
     return url;
   }
-  if (parsed.hostname !== "upload.wikimedia.org") return url;
+  if (!isWikimediaImageHost(parsed.hostname)) return url;
   if (!parsed.pathname.includes("/thumb/")) return url;
   const match = parsed.pathname.match(/\/(\d+)px-([^/]+)$/);
   if (!match) return url;
@@ -331,7 +332,7 @@ export function standardizeWikimediaThumbUrl(url: string): string {
  */
 export function proxiedImageUrl(url: string): string | undefined {
   try {
-    if (new URL(url).hostname !== "upload.wikimedia.org") return undefined;
+    if (!isWikimediaImageHost(new URL(url).hostname)) return undefined;
   } catch {
     return undefined;
   }
