@@ -10,6 +10,7 @@ import { toastMutationError } from "@/lib/api-error";
 import { useDeleteShare, useDeleteTrip, useUpdateTrip } from "@itinly/api-client";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { CityHeroImage } from "@/components/city-hero-image";
 import { formatTripDateRange } from "@/lib/format-date";
 import {
   daysUntil,
@@ -101,37 +102,14 @@ function TripCardHero({ trip }: { trip: TripSummary }): React.JSX.Element {
   return (
     <div
       className="relative h-32 w-full overflow-hidden"
-      style={
-        image
-          ? undefined
-          : {
-              backgroundImage: `linear-gradient(135deg, ${gradient.from}, ${gradient.to})`,
-            }
-      }
+      style={{
+        // Always paint the gradient: it shows while the photo loads and
+        // stays as the fallback if the photo fails (CityHeroImage unmounts).
+        backgroundImage: `linear-gradient(135deg, ${gradient.from}, ${gradient.to})`,
+      }}
     >
       {image ? (
-        // Wikipedia thumbnails come from upload.wikimedia.org and don't
-        // benefit from Next/Image optimisation (this app is static-exported
-        // with images.unoptimized=true). Plain <img> keeps the layout
-        // predictable and avoids the cases where next/image's remote-URL
-        // handling silently drops the element.
-        //
-        // `crossOrigin="anonymous"` is required by our
-        // `Cross-Origin-Embedder-Policy: credentialless` header — without
-        // it the browser fetches the image as `no-cors` opaque and the
-        // service worker's cached response then fails the COEP gate
-        // ("Cross-Origin-Resource-Policy prevented from serving the
-        // response to the client"). Wikimedia replies with
-        // `Access-Control-Allow-Origin: *` on CORS requests, so the
-        // anonymous mode works without credentials.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={image.url}
-          alt={trip.title}
-          loading="lazy"
-          crossOrigin="anonymous"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
+        <CityHeroImage image={image} />
       ) : (
         // No city → no Wikipedia image to fetch. Render a calendar
         // glyph on top of the gradient so the hero doesn't look
