@@ -608,6 +608,60 @@ describe("Segment routes", () => {
     expect(res.body.title).toBe("New Title");
   });
 
+  it("clears optional segment fields sent as null, and the clear sticks", async () => {
+    const createRes = await request(app)
+      .post(`/api/v1/trips/${tripId}/segments`)
+      .send({
+        date: "2025-12-19",
+        type: "restaurant_dinner",
+        title: "Dinner",
+        venueName: "Botín",
+        address: "Calle de Cuchilleros, 17",
+        url: "https://botin.es",
+        confirmationCode: "ABC123",
+        creditCardHold: true,
+      });
+    expect(createRes.status).toBe(201);
+    const segId = createRes.body.id;
+
+    const res = await request(app)
+      .put(`/api/v1/trips/${tripId}/segments/${segId}`)
+      .send({
+        title: "Dinner",
+        address: null,
+        url: null,
+        confirmationCode: null,
+        creditCardHold: null,
+      });
+    expect(res.status).toBe(200);
+    expect(res.body).not.toHaveProperty("address");
+    expect(res.body).not.toHaveProperty("url");
+    expect(res.body).not.toHaveProperty("confirmationCode");
+    expect(res.body).not.toHaveProperty("creditCardHold");
+    // Untouched fields survive.
+    expect(res.body.venueName).toBe("Botín");
+
+    // The clear is persisted, not just echoed back.
+    const trip = await request(app).get(`/api/v1/trips/${tripId}`);
+    const saved = trip.body.days
+      .flatMap((d: { segments: Array<{ id: string }> }) => d.segments)
+      .find((s: { id: string }) => s.id === segId);
+    expect(saved).not.toHaveProperty("address");
+    expect(saved.venueName).toBe("Botín");
+  });
+
+  it("rejects null for required segment fields", async () => {
+    const createRes = await request(app)
+      .post(`/api/v1/trips/${tripId}/segments`)
+      .send({ date: "2025-12-19", type: "flight", title: "Flight" });
+    for (const body of [{ title: null }, { type: null }]) {
+      const res = await request(app)
+        .put(`/api/v1/trips/${tripId}/segments/${createRes.body.id}`)
+        .send(body);
+      expect(res.status).toBe(400);
+    }
+  });
+
   it("updates multiple segment fields at once", async () => {
     const createRes = await request(app)
       .post(`/api/v1/trips/${tripId}/segments`)
