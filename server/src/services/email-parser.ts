@@ -4,6 +4,7 @@ import { parsedSegmentSchema, SEGMENT_TYPES } from "@itinly/shared";
 import type { ParsedSegment } from "@itinly/shared";
 import { reportMessage } from "./monitoring";
 import { debugEmailScan } from "../utils/debug-log";
+import { chooseBodyText } from "./body-selection";
 
 // TODO: Support points/miles in SegmentCost (e.g. 40,000 hotel points, points + cash combos)
 // TODO: For hotels, extract key fees on top of hotel cost (self-parking vs. valet, resort fee)
@@ -310,7 +311,10 @@ export class EmailParser {
     // than a real body. 400 chars is empirically enough to catch
     // every real travel confirmation we've seen while skipping the
     // common stub strings.
-    const PLAIN_TEXT_PREFER_THRESHOLD = 400;
+    //
+    // A long-enough plain part can still be boilerplate that omits the
+    // booking (order lines only in HTML), so `chooseBodyText` also
+    // compares booking-fact density between the two renderings.
     const normalizePlain = (s: string): string =>
       s
         .split(/\r?\n/)
@@ -325,12 +329,9 @@ export class EmailParser {
         : "";
     const hasHtml = typeof parsed.html === "string" && parsed.html.trim();
 
-    if (textBody && textBody.length >= PLAIN_TEXT_PREFER_THRESHOLD) {
-      // Real plain-text body — use it directly. Best signal-to-noise
-      // for Claude.
-      body = textBody;
+    if (textBody && hasHtml) {
+      body = chooseBodyText(textBody, EmailParser.htmlToText(parsed.html as string));
     } else if (hasHtml) {
-      // HTML-only OR stub plain-text — fall back to stripping the HTML.
       body = EmailParser.htmlToText(parsed.html as string);
     } else if (textBody) {
       // Stub plain-text but no HTML either — use what we have.

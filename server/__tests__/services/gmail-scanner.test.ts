@@ -203,6 +203,32 @@ describe("extractBody", () => {
     expect(extractBody(payload).trim()).toBe("Real content");
   });
 
+  it("falls back to text/html when text/plain is just a subject-line stub", () => {
+    // TheFork / Mailjet restaurant confirmations ship a text/plain part
+    // that is only the subject; the date, time and party size live in HTML.
+    const payload = {
+      mimeType: "multipart/alternative",
+      parts: [
+        {
+          mimeType: "text/plain",
+          body: { data: b64("Confirmation of your reservation at Faralá") },
+        },
+        {
+          mimeType: "text/html",
+          body: {
+            data: b64(
+              "<p>Reservation confirmed</p><table><tr><td>Date</td><td>Monday, 28 Dec</td><td>Hour</td><td>8:00 PM</td><td>People</td><td>4 people</td></tr></table>",
+            ),
+          },
+        },
+      ],
+    };
+    const body = extractBody(payload);
+    expect(body).toContain("Monday, 28 Dec");
+    expect(body).toContain("8:00 PM");
+    expect(body).toContain("4 people");
+  });
+
   it("falls back to text/html when text/plain is absent entirely", () => {
     const payload = {
       mimeType: "multipart/alternative",
