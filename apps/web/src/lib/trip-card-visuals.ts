@@ -325,6 +325,19 @@ export function standardizeWikimediaThumbUrl(url: string): string {
   return parsed.toString();
 }
 
+/**
+ * Same-origin URL for a Wikimedia photo via `app/api/wiki-image/route.ts`,
+ * or `undefined` for URLs the proxy won't serve. See the route for why.
+ */
+export function proxiedImageUrl(url: string): string | undefined {
+  try {
+    if (new URL(url).hostname !== "upload.wikimedia.org") return undefined;
+  } catch {
+    return undefined;
+  }
+  return `/api/wiki-image?url=${encodeURIComponent(url)}`;
+}
+
 function pickImageFromSummary(summary: WikipediaSummary | undefined): CityImage | undefined {
   if (!summary) return undefined;
   // Prefer the thumbnail (~320px) — the hero band is only ~128px tall, so the

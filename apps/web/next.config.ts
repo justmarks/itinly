@@ -187,10 +187,15 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/:path*",
-        headers: [
-          ...SECURITY_HEADERS,
-          { key: "Cache-Control", value: NO_STORE },
-        ],
+        headers: SECURITY_HEADERS,
+      },
+      {
+        // Everything except the trip-card photo proxy
+        // (`app/api/wiki-image/route.ts`), which sets its own
+        // Cache-Control per response: long-lived for images, no-store for
+        // errors. A config header here would override the route's.
+        source: "/:path((?!api/wiki-image$).*)",
+        headers: [{ key: "Cache-Control", value: NO_STORE }],
       },
       // `/_next/static/:path*` is intentionally NOT listed: Next.js
       // already emits `Cache-Control: public, max-age=31536000,

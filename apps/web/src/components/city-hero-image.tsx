@@ -1,33 +1,38 @@
 "use client";
 
 import { useState } from "react";
-import type { CityImage } from "@/lib/trip-card-visuals";
+import { proxiedImageUrl, type CityImage } from "@/lib/trip-card-visuals";
 
 /**
  * Wikipedia hero photo for the trip cards (desktop `TripCard` + mobile
- * `MobileTripHero`). Renders nothing once the image fails to load so the
- * parent's gradient background shows through — without this, a dead
- * thumbnail URL (Wikimedia 4xx / rate limit, offline with no cached copy)
- * rendered the browser's broken-image glyph plus the alt text over the
- * hero, duplicating the trip title.
+ * `MobileTripHero`) and the cover-photo preview. Renders nothing once
+ * every load attempt has failed so the parent's gradient background shows
+ * through — a dead URL used to render the browser's broken-image glyph
+ * plus the alt text over the hero, duplicating the trip title.
  *
- * Wikipedia thumbnails come from upload.wikimedia.org and don't benefit
- * from Next/Image optimisation (images.unoptimized=true). Plain <img>
- * keeps the layout predictable and avoids the cases where next/image's
- * remote-URL handling silently drops the element.
+ * Plain <img> rather than next/image: images.unoptimized=true, and
+ * next/image's remote-URL handling silently dropped the element in the
+ * past.
  *
- * First attempt uses `crossOrigin="anonymous"`, which our
- * `Cross-Origin-Embedder-Policy: credentialless` header needs on
- * Chromium: without it the browser fetches the image as `no-cors` opaque
- * and the service worker's cached response then fails the COEP gate
- * ("Cross-Origin-Resource-Policy prevented from serving the response to
- * the client"). Wikimedia replies with `Access-Control-Allow-Origin: *`
- * on CORS requests, so the anonymous mode works without credentials.
- *
- * iOS Safari was seen failing that CORS load for a URL the lookup had
- * resolved fine, so on error we retry once as a plain (no-cors) image
- * before giving up — whichever mode the browser accepts wins.
+ * Load attempts, in order, each on the previous one's `error`:
+ * 1. `proxy` — same-origin via `/api/wiki-image`. iOS Safari resolved
+ *    the Wikipedia URL but couldn't load the image directly in either
+ *    mode below; same-origin avoids every cross-origin rule and
+ *    Wikimedia throttling of shared client IPs.
+ * 2. `cors` — direct, `crossOrigin="anonymous"`. Needed under our
+ *    `Cross-Origin-Embedder-Policy: credentialless` on Chromium when the
+ *    service worker serves a cached copy (an opaque no-cors response
+ *    fails the COEP gate). Wikimedia sends `Access-Control-Allow-Origin: *`.
+ * 3. `plain` — direct, no-cors.
  */
+type Mode = "proxy" | "cors" | "plain" | "failed";
+
+const NEXT_MODE: Record<Exclude<Mode, "failed">, Mode> = {
+  proxy: "cors",
+  cors: "plain",
+  plain: "failed",
+};
+
 export function CityHeroImage({
   image,
   onLoadError,
@@ -36,37 +41,35 @@ export function CityHeroImage({
   /** Called once when every load attempt has failed (before it unmounts). */
   onLoadError?: (url: string) => void;
 }): React.JSX.Element | null {
+  const proxied = proxiedImageUrl(image.url);
+  const firstMode: Mode = proxied ? "proxy" : "cors";
   // Keyed by URL so a new URL for the same card (city edited, cache
-  // refreshed) starts again from the CORS attempt.
-  const [attempt, setAttempt] = useState<{
-    url: string;
-    mode: "plain" | "failed";
-  }>();
-  const mode = attempt?.url === image.url ? attempt.mode : "cors";
+  // refreshed) starts again from the first attempt.
+  const [attempt, setAttempt] = useState<{ url: string; mode: Mode }>();
+  const mode = attempt?.url === image.url ? attempt.mode : firstMode;
   if (mode === "failed") return null;
+
   return (
     // eslint-disable-next-line @next/next/no-img-element -- see doc comment above
     <img
       // Remount on mode change so the browser issues a fresh request
       // instead of reusing the failed one.
       key={mode}
-      src={image.url}
+      src={mode === "proxy" && proxied ? proxied : image.url}
       // Decorative — the trip title is already overlaid on the hero, so a
       // non-empty alt just makes screen readers say it twice.
       alt=""
       loading="lazy"
       crossOrigin={mode === "cors" ? "anonymous" : undefined}
       onError={() => {
-        if (mode === "cors") {
-          console.warn(
-            `[trip-card-visuals] CORS load failed, retrying as plain image: ${image.url}`,
-          );
-          setAttempt({ url: image.url, mode: "plain" });
-          return;
-        }
-        console.warn(`[trip-card-visuals] hero image failed to load: ${image.url}`);
-        setAttempt({ url: image.url, mode: "failed" });
-        onLoadError?.(image.url);
+        const next = NEXT_MODE[mode];
+        console.warn(
+          `[trip-card-visuals] hero image ${mode} load failed${
+            next === "failed" ? "" : `, trying ${next}`
+          }: ${image.url}`,
+        );
+        setAttempt({ url: image.url, mode: next });
+        if (next === "failed") onLoadError?.(image.url);
       }}
       className="absolute inset-0 h-full w-full object-cover"
     />
