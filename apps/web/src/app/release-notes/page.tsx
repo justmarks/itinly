@@ -31,6 +31,162 @@ export default function ReleaseNotesPage(): React.JSX.Element {
           <section className="space-y-6">
             <header className="space-y-1">
               <h2 className="text-2xl font-semibold tracking-tight">
+                v1.7.0 — Pick your cover photo, smarter automatic photos, photos load again
+              </h2>
+              <p className="text-sm text-muted-foreground">October 3, 2026</p>
+            </header>
+
+            <p>
+              Trip cards get the picture right. 
+              <strong>Pick your own cover photo</strong> — any city or
+              attraction, like &ldquo;Alhambra&rdquo; or &ldquo;Sagrada
+              Família&rdquo; — from the trip card menu on desktop or 
+              <strong>Edit trip</strong> on mobile, with a live preview. When
+              you leave it on automatic, 
+              <strong>the trip title now steers the pick</strong>: &ldquo;Spain
+              December 2026&rdquo; shows a Spanish city even if a London
+              stopover has more days. And <strong>trip photos load again</strong> 
+              — Wikipedia moved its thumbnails to a new host that itinly was
+              blocking, so cards had been showing a broken image or a plain
+              gradient. Plus email scans read the 
+              <strong>HTML body when the plain-text part is a stub</strong>,
+              restaurant confirmations keep their 
+              <strong>cancellation policy</strong>, and a crash that blanked the
+              app in privacy-hardened browsers is fixed.
+            </p>
+
+            <Subsection title="Trip cover photos">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Choose the cover photo.</strong> A trip&apos;s card
+                  photo can now be any city or attraction you name —
+                  &ldquo;Alhambra&rdquo;, &ldquo;Granada&rdquo;,
+                  &ldquo;Skógafoss&rdquo;. On desktop it&apos;s 
+                  <strong>Change cover photo…</strong> in the trip card&apos;s ⋯
+                  menu (and the trip page&apos;s ⋯ menu); on mobile it&apos;s the 
+                  <strong>Cover photo</strong> field in <strong>Edit trip</strong>.
+                  A live preview shows the photo before you save, empty means
+                  automatic (and the preview shows what automatic picks), and
+                  &ldquo;Use automatic&rdquo; clears your choice. Attractions
+                  borrow the trip&apos;s country for the flag, so
+                  &ldquo;Alhambra&rdquo; on a Spain trip still shows 🇪🇸. Add a
+                  country to disambiguate — &ldquo;Granada, Nicaragua&rdquo;
+                  finds the Nicaraguan city. (<PrLink number={442} />)
+                </li>
+                <li>
+                  <strong>The title steers the automatic pick.</strong> When the
+                  trip title names a country or one of the trip&apos;s cities,
+                  only those cities compete for the card — &ldquo;Spain December
+                  2026&rdquo; picks Madrid over a longer London stopover.
+                  Informal names work too (UK, England, USA, Holland). Titles
+                  that name nothing recognisable behave exactly as before. (
+                  <PrLink number={442} />)
+                </li>
+                <li>
+                  <strong>More flags.</strong> Cities outside the built-in list
+                  now get their country from the airport dataset — San Juan
+                  resolves to Puerto Rico 🇵🇷. Names shared by airports in
+                  several countries (Valencia in Spain and Venezuela) are
+                  skipped rather than guessed. (<PrLink number={441} />)
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Trip photos load again">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Wikipedia&apos;s new image host is allowed.</strong> 
+                  Wikipedia began serving thumbnails from 
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">thumb.wikimedia.org</code> instead of 
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">upload.wikimedia.org</code>, and itinly&apos;s
+                  content-security policy blocked every one — on every browser.
+                  The new host is allowed in the policy, the service
+                  worker&apos;s image cache, and the photo proxy. (
+                  <PrLink number={444} />)
+                </li>
+                <li>
+                  <strong>Photos load through itinly&apos;s own domain.</strong> 
+                  A new <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">/api/wiki-image</code> route fetches the
+                  thumbnail server-side and serves it same-origin, so
+                  cross-origin rules, the offline cache, and Wikimedia
+                  throttling of shared connections (e.g. iCloud Private Relay)
+                  can&apos;t block it. The browser falls back to loading
+                  Wikimedia directly, then to the gradient. The route only
+                  accepts Wikimedia image URLs, refuses redirects and
+                  non-images, caps size at 5 MB, and caches successes at the
+                  CDN. (<PrLink number={442} />)
+                </li>
+                <li>
+                  <strong>No more broken-image icons.</strong> A photo that
+                  can&apos;t load now leaves the card&apos;s colour gradient
+                  instead of the browser&apos;s broken-image glyph plus a
+                  duplicated title. Thumbnails are requested at Wikimedia&apos;s
+                  standard sizes. (<PrLink number={441} />)
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Email scanning">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>HTML body when the plain text is a stub.</strong> Some
+                  confirmations (TheFork / Mailjet, museum tickets) ship a
+                  plain-text part that&apos;s just the subject line or
+                  boilerplate without the booking lines, so they parsed as
+                  &ldquo;no travel content&rdquo;. Gmail scans and EML imports
+                  now compare the plain-text and HTML parts and use the one with
+                  the booking details. (<PrLink number={443} />)
+                </li>
+                <li>
+                  <strong>Restaurant cancellation policies are kept.</strong> 
+                  &ldquo;Cancel 24h in advance&rdquo; or &ldquo;No-shows charged
+                  $50/person&rdquo; now lands in the segment&apos;s Details
+                  field, even when the confirmation quotes no price. (
+                  <PrLink number={439} />)
+                </li>
+                <li>
+                  <strong>Reconnect when the email connection times out.</strong> 
+                  A desktop scan that times out talking to your mailbox now
+                  offers a one-click reconnect instead of a dead end. (
+                  <PrLink number={438} />)
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Reliability">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Privacy-hardened browsers no longer crash the
+                  app.</strong> Brave, Firefox with resist-fingerprinting, and
+                  some privacy extensions make canvas reads return nothing,
+                  which crashed the country-flag polyfill and blanked the whole
+                  app. The polyfill failure is now caught — flags fall back to
+                  country-code letters. (<PrLink number={440} />)
+                </li>
+              </ul>
+            </Subsection>
+
+            <Subsection title="Under the hood">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>
+                  <strong>Migration 
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">0009_trip_cover_location</code></strong> adds a
+                  nullable <code className="rounded bg-muted px-1.5 py-0.5 text-[0.875em]">trips.cover_location</code> column —
+                  metadata-only, existing trips stay automatic.
+                </li>
+                <li>
+                  <strong>Tests grew to 1,110</strong> across 68 test suites —
+                  new coverage for the title hint, cover-location override,
+                  airport-dataset country fallback, plain-text vs. HTML body
+                  selection, and the cover-location route + storage round-trip.
+                </li>
+              </ul>
+            </Subsection>
+          </section>
+
+          <section className="space-y-6">
+            <header className="space-y-1">
+              <h2 className="text-2xl font-semibold tracking-tight">
                 v1.6.0 — Confirmation numbers combined, details that stick, wider label scans
               </h2>
               <p className="text-sm text-muted-foreground">September 7, 2026</p>

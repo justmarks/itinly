@@ -45,6 +45,8 @@ export const trips = pgTable(
     endDate: date("end_date").notNull(),
     status: text("status").notNull(),
     calendarId: text("calendar_id"),
+    // Trip-card hero subject (city or attraction). NULL = automatic.
+    coverLocation: text("cover_location"),
     schemaVersion: integer("schema_version").notNull().default(3),
     // date → city map. Empty/missing keys fall back to a derivation
     // (last-known city, segment city, etc.) the storage layer applies

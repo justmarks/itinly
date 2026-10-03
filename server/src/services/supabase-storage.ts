@@ -201,6 +201,7 @@ export class SupabaseStorage implements StorageProvider {
           startDate: trip.startDate,
           endDate: trip.endDate,
           status: trip.status,
+          coverLocation: trip.coverLocation ?? null,
           schemaVersion: trip.schemaVersion ?? CURRENT_TRIP_SCHEMA_VERSION,
           dayCities,
           shares: trip.shares ?? [],
@@ -214,6 +215,7 @@ export class SupabaseStorage implements StorageProvider {
             startDate: trip.startDate,
             endDate: trip.endDate,
             status: trip.status,
+            coverLocation: trip.coverLocation ?? null,
             schemaVersion: trip.schemaVersion ?? CURRENT_TRIP_SCHEMA_VERSION,
             dayCities,
             shares: trip.shares ?? [],
@@ -847,6 +849,7 @@ function assembleTrip(
     // `trips` was backfilled by migration 0007 and is no longer
     // authoritative; reads come from the new table via a separate
     // API endpoint.
+    ...(row.coverLocation ? { coverLocation: row.coverLocation } : {}),
     schemaVersion: row.schemaVersion,
   };
 }

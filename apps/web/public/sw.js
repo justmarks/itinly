@@ -184,8 +184,10 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Wikipedia city images — cache-first with background revalidate.
-  if (isWikimediaImage(url)) {
+  // Wikipedia city images — cache-first with background revalidate. The
+  // same-origin `/api/wiki-image` proxy (the card's first load attempt)
+  // shares the capped image cache rather than the unbounded runtime one.
+  if (isWikimediaImage(url) || isWikiImageProxy(url)) {
     event.respondWith(staleWhileRevalidate(req, IMAGE_CACHE, IMAGE_CACHE_MAX_ENTRIES));
     return;
   }
@@ -240,9 +242,14 @@ function isTripApi(url) {
   return /\/api\/v1\/trips(\/|$|\?)/.test(url.pathname);
 }
 
+function isWikiImageProxy(url) {
+  return url.origin === self.location.origin && url.pathname === "/api/wiki-image";
+}
+
 function isWikimediaImage(url) {
   return (
     url.hostname === "upload.wikimedia.org" ||
+    url.hostname === "thumb.wikimedia.org" ||
     url.hostname.endsWith(".wikipedia.org")
   );
 }

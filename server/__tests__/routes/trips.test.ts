@@ -322,6 +322,49 @@ describe("Trip CRUD", () => {
       expect(res.body.status).toBe("active");
     });
 
+    it("sets and clears the cover location, reflected in the trip list", async () => {
+      const createRes = await request(app)
+        .post("/api/v1/trips")
+        .send({
+          title: "Spain December 2026",
+          startDate: "2026-12-25",
+          endDate: "2026-12-26",
+        });
+      const id = createRes.body.id;
+
+      const setRes = await request(app)
+        .put(`/api/v1/trips/${id}`)
+        .send({ coverLocation: "  Alhambra " });
+      expect(setRes.status).toBe(200);
+      expect(setRes.body.coverLocation).toBe("Alhambra");
+      expect(setRes.body.history.at(-1).details).toContain('cover photo → "Alhambra"');
+
+      const listRes = await request(app).get("/api/v1/trips");
+      const summary = listRes.body.find((t: { id: string }) => t.id === id);
+      expect(summary.primaryCity).toBe("Alhambra");
+
+      const clearRes = await request(app)
+        .put(`/api/v1/trips/${id}`)
+        .send({ coverLocation: null });
+      expect(clearRes.status).toBe(200);
+      expect(clearRes.body.coverLocation).toBeUndefined();
+      expect(clearRes.body.history.at(-1).details).toContain("cover photo → automatic");
+
+      const listAfter = await request(app).get("/api/v1/trips");
+      const after = listAfter.body.find((t: { id: string }) => t.id === id);
+      expect(after.primaryCity).toBeUndefined();
+    });
+
+    it("rejects an over-long cover location", async () => {
+      const createRes = await request(app)
+        .post("/api/v1/trips")
+        .send({ title: "Trip", startDate: "2025-06-01", endDate: "2025-06-02" });
+      const res = await request(app)
+        .put(`/api/v1/trips/${createRes.body.id}`)
+        .send({ coverLocation: "x".repeat(121) });
+      expect(res.status).toBe(400);
+    });
+
     it("rejects date update that would overlap another trip", async () => {
       const trip1 = await request(app)
         .post("/api/v1/trips")

@@ -625,6 +625,19 @@ export function createTripRoutes(options: TripRoutesOptions): Router {
       changedFields.push(`status ${trip.status} → ${updates.status}`);
       trip.status = updates.status;
     }
+    if (updates.coverLocation !== undefined) {
+      // `null` / "" (the validator trims) clears back to automatic.
+      const next = updates.coverLocation || undefined;
+      if (next !== trip.coverLocation) {
+        changedFields.push(
+          next
+            ? `cover photo → "${next}"`
+            : "cover photo → automatic",
+        );
+        if (next) trip.coverLocation = next;
+        else delete trip.coverLocation;
+      }
+    }
 
     // When dates change, rebuild the days array while preserving existing
     // segments for dates that remain in range.

@@ -12,6 +12,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { isWikimediaImageHost } from "@/lib/wikimedia-hosts";
 
 export interface CityImage {
   url: string;
@@ -29,7 +30,44 @@ interface WikipediaSummary {
   };
 }
 
-async function fetchSummary(query: string): Promise<WikipediaSummary | undefined> {
+/**
+ * Per-lookup tally of Wikipedia requests, so a lookup where *every*
+ * request failed at the network level (CSP, service worker, offline,
+ * Wikimedia unreachable) can be told apart from "Wikipedia answered but
+ * had no photo".
+ */
+interface LookupStats {
+  responses: number;
+  networkErrors: number;
+}
+
+async function trackedFetch(
+  stats: LookupStats,
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  try {
+    const res = await fetch(url, init);
+    stats.responses += 1;
+    return res;
+  } catch (err) {
+    stats.networkErrors += 1;
+    throw err;
+  }
+}
+
+/** Thrown by the lookup when no Wikipedia request got a response. */
+export class WikipediaUnreachableError extends Error {
+  constructor() {
+    super("Couldn't reach Wikipedia");
+    this.name = "WikipediaUnreachableError";
+  }
+}
+
+async function fetchSummary(
+  query: string,
+  stats: LookupStats,
+): Promise<WikipediaSummary | undefined> {
   // Wikipedia normalises spaces to underscores; encodeURIComponent handles
   // diacritics (Reykjavík) and apostrophes correctly.
   const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
@@ -37,7 +75,7 @@ async function fetchSummary(query: string): Promise<WikipediaSummary | undefined
   )}`;
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await trackedFetch(stats, url, {
       // Wikimedia REST policy requires identifying the caller. Without a
       // distinct Api-User-Agent header, requests from a popular CDN
       // origin can get rate-limited or blocked silently. Using the
@@ -116,6 +154,7 @@ interface WikipediaImagesResponse {
  */
 async function fetchFirstArticleImage(
   title: string,
+  stats: LookupStats,
 ): Promise<CityImage | undefined> {
   const url =
     `https://en.wikipedia.org/w/api.php` +
@@ -124,7 +163,7 @@ async function fetchFirstArticleImage(
     `&titles=${encodeURIComponent(title.replace(/\s+/g, "_"))}` +
     `&origin=*`;
   try {
-    const res = await fetch(url, {
+    const res = await trackedFetch(stats, url, {
       headers: {
         Accept: "application/json",
         "Api-User-Agent": "itinly (itinly.app)",
@@ -169,7 +208,10 @@ async function fetchFirstArticleImage(
   }
 }
 
-async function fetchDisambiguationPlaceLinks(title: string): Promise<string[]> {
+async function fetchDisambiguationPlaceLinks(
+  title: string,
+  stats: LookupStats,
+): Promise<string[]> {
   const url =
     `https://en.wikipedia.org/w/api.php` +
     `?action=query&format=json&prop=links&pllimit=50&plnamespace=0` +
@@ -177,7 +219,7 @@ async function fetchDisambiguationPlaceLinks(title: string): Promise<string[]> {
     // origin=* permits the CORS request from arbitrary browser origins.
     `&origin=*`;
   try {
-    const res = await fetch(url, {
+    const res = await trackedFetch(stats, url, {
       headers: {
         Accept: "application/json",
         "Api-User-Agent": "itinly (itinly.app)",
@@ -219,7 +261,8 @@ interface WikipediaSearchResponse {
  */
 async function searchForArticleTitle(
   query: string,
-  hint?: string,
+  hint: string | undefined,
+  stats: LookupStats,
 ): Promise<string | undefined> {
   const fullQuery = hint ? `${query} ${hint}` : query;
   const url =
@@ -229,7 +272,7 @@ async function searchForArticleTitle(
     // origin=* permits the CORS request from arbitrary origins.
     `&origin=*`;
   try {
-    const res = await fetch(url, {
+    const res = await trackedFetch(stats, url, {
       headers: {
         Accept: "application/json",
         "Api-User-Agent": "itinly (itinly.app)",
@@ -248,8 +291,8 @@ async function searchForArticleTitle(
 }
 
 /**
- * Wikimedia's standard thumbnail widths. upload.wikimedia.org pre-renders
- * and caches these; other widths are rendered on demand and are subject to
+ * Wikimedia's standard thumbnail widths. Wikimedia's image hosts pre-render
+ * and cache these; other widths are rendered on demand and are subject to
  * much stricter rate limits, so a non-standard URL (the summary endpoint
  * hands back `320px-…`) can come back as an error and leave the trip card
  * with a broken image.
@@ -259,7 +302,7 @@ const WIKIMEDIA_THUMB_STEPS = [120, 250, 330, 500, 960, 1280] as const;
 const HERO_THUMB_WIDTH = 330;
 
 /**
- * Snap a `…/thumb/…/<N>px-<file>` upload.wikimedia.org URL up to the next
+ * Snap a `…/thumb/…/<N>px-<file>` Wikimedia image URL up to the next
  * standard thumbnail width. Non-thumbnail URLs (originals, other hosts)
  * are returned unchanged.
  */
@@ -270,7 +313,7 @@ export function standardizeWikimediaThumbUrl(url: string): string {
   } catch {
     return url;
   }
-  if (parsed.hostname !== "upload.wikimedia.org") return url;
+  if (!isWikimediaImageHost(parsed.hostname)) return url;
   if (!parsed.pathname.includes("/thumb/")) return url;
   const match = parsed.pathname.match(/\/(\d+)px-([^/]+)$/);
   if (!match) return url;
@@ -281,6 +324,19 @@ export function standardizeWikimediaThumbUrl(url: string): string {
     WIKIMEDIA_THUMB_STEPS[WIKIMEDIA_THUMB_STEPS.length - 1];
   parsed.pathname = parsed.pathname.replace(/\/\d+px-([^/]+)$/, `/${step}px-$1`);
   return parsed.toString();
+}
+
+/**
+ * Same-origin URL for a Wikimedia photo via `app/api/wiki-image/route.ts`,
+ * or `undefined` for URLs the proxy won't serve. See the route for why.
+ */
+export function proxiedImageUrl(url: string): string | undefined {
+  try {
+    if (!isWikimediaImageHost(new URL(url).hostname)) return undefined;
+  } catch {
+    return undefined;
+  }
+  return `/api/wiki-image?url=${encodeURIComponent(url)}`;
 }
 
 function pickImageFromSummary(summary: WikipediaSummary | undefined): CityImage | undefined {
@@ -309,91 +365,125 @@ export function useCityImage(
   city: string | undefined,
   country: string | undefined,
 ): CityImage | undefined {
+  return useCityImageLookup(city, country).image;
+}
+
+/**
+ * `useCityImage` plus whether the lookup is still running — lets the
+ * cover-photo picker tell "searching…" apart from "no photo found".
+ */
+export function useCityImageLookup(
+  city: string | undefined,
+  country: string | undefined,
+): { image: CityImage | undefined; isLoading: boolean; unreachable: boolean } {
   const enabled = Boolean(city);
-  const { data } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["city-image", city, country],
     enabled,
     staleTime: Infinity,
     gcTime: Infinity,
     retry: false,
     queryFn: async (): Promise<CityImage | null> => {
-      const cityHead = city!.split(",")[0]?.trim() ?? city!;
-
-      // Track whether any of the lookups landed on a disambiguation
-      // page so step 3 can walk its place-link list.
-      let disambigTitle: string | undefined;
-
-      // 1) Try the raw title — fast path for unambiguous cities.
-      const directSummary = await fetchSummary(cityHead);
-      const direct = pickImageFromSummary(directSummary);
-      if (direct) return direct;
-      if (directSummary?.type === "disambiguation") {
-        disambigTitle = cityHead;
+      const stats: LookupStats = { responses: 0, networkErrors: 0 };
+      const result = await lookupCityImage(stats);
+      if (!result && stats.responses === 0 && stats.networkErrors > 0) {
+        // Not cached as a miss — the next mount retries.
+        throw new WikipediaUnreachableError();
       }
-
-      // 2) Search for the article. Use the country (if known) as a hint
-      //    so "Palm Desert" lands on "Palm Desert, California" rather
-      //    than disambiguating to a generic landform.
-      const matchedTitle = await searchForArticleTitle(cityHead, country);
-      if (matchedTitle && matchedTitle !== cityHead) {
-        const searchedSummary = await fetchSummary(matchedTitle);
-        const searched = pickImageFromSummary(searchedSummary);
-        if (searched) return searched;
-        if (searchedSummary?.type === "disambiguation") {
-          disambigTitle = matchedTitle;
-        }
-      }
-
-      // 3) Disambiguation walk. When step 1 or 2 landed on a
-      //    disambiguation page (e.g. "Whistler" → the disambiguation
-      //    page that lists Whistler, British Columbia + Whistler,
-      //    Alabama + people named Whistler + …), pull the
-      //    `^{title}, *` candidates and try each. Capped at 5 to
-      //    bound the worst-case cost — beyond that we'd be burning
-      //    network for a tiny census-designated place that probably
-      //    has no image anyway.
-      let disambigCandidates: string[] = [];
-      if (disambigTitle) {
-        disambigCandidates = (
-          await fetchDisambiguationPlaceLinks(disambigTitle)
-        ).slice(0, 5);
-        for (const candidate of disambigCandidates) {
-          const candidateImg = pickImageFromSummary(
-            await fetchSummary(candidate),
-          );
-          if (candidateImg) return candidateImg;
-        }
-      }
-
-      // 4) Deeper image fallback. Wikipedia's `pageimage` property
-      //    isn't always populated even on well-illustrated articles
-      //    (e.g. "Whistler, British Columbia" has the Olympic Inukshuk
-      //    statue as its lead image, but the summary endpoint returns
-      //    no thumbnail). Walk the article's image list directly via
-      //    `prop=images` and pick the first content image. We try this
-      //    on the disambiguation candidates first (most likely to be
-      //    the city the user meant), then fall back to the matched
-      //    search title.
-      const imageWalkTargets = [
-        ...disambigCandidates,
-        ...(matchedTitle ? [matchedTitle] : []),
-      ].filter(Boolean);
-      for (const target of imageWalkTargets.slice(0, 3)) {
-        const found = await fetchFirstArticleImage(target);
-        if (found) return found;
-      }
-
-      // 5) Country fallback so cruise stops and small towns still show
-      //    *something* recognisable.
-      if (country) {
-        const countryResult = pickImageFromSummary(await fetchSummary(country));
-        if (countryResult) return countryResult;
-      }
-
-      return null;
+      return result;
     },
   });
-  return data ?? undefined;
+  return {
+    image: data ?? undefined,
+    isLoading: enabled && isLoading,
+    unreachable: error instanceof WikipediaUnreachableError,
+  };
+
+  async function lookupCityImage(stats: LookupStats): Promise<CityImage | null> {
+    const cityHead = city!.split(",")[0]?.trim() ?? city!;
+
+    // Track whether any of the lookups landed on a disambiguation
+    // page so step 3 can walk its place-link list.
+    let disambigTitle: string | undefined;
+
+    // 0) A comma-qualified name ("Granada, Nicaragua" — typical for a
+    //    user-picked cover location) is often the exact Wikipedia
+    //    title; try it before the bare head, which would land on the
+    //    better-known namesake.
+    if (cityHead !== city!.trim()) {
+      const qualified = pickImageFromSummary(await fetchSummary(city!.trim(), stats));
+      if (qualified) return qualified;
+    }
+
+    // 1) Try the raw title — fast path for unambiguous cities.
+    const directSummary = await fetchSummary(cityHead, stats);
+    const direct = pickImageFromSummary(directSummary);
+    if (direct) return direct;
+    if (directSummary?.type === "disambiguation") {
+      disambigTitle = cityHead;
+    }
+
+    // 2) Search for the article. Use the country (if known) as a hint
+    //    so "Palm Desert" lands on "Palm Desert, California" rather
+    //    than disambiguating to a generic landform.
+    const matchedTitle = await searchForArticleTitle(cityHead, country, stats);
+    if (matchedTitle && matchedTitle !== cityHead) {
+      const searchedSummary = await fetchSummary(matchedTitle, stats);
+      const searched = pickImageFromSummary(searchedSummary);
+      if (searched) return searched;
+      if (searchedSummary?.type === "disambiguation") {
+        disambigTitle = matchedTitle;
+      }
+    }
+
+    // 3) Disambiguation walk. When step 1 or 2 landed on a
+    //    disambiguation page (e.g. "Whistler" → the disambiguation
+    //    page that lists Whistler, British Columbia + Whistler,
+    //    Alabama + people named Whistler + …), pull the
+    //    `^{title}, *` candidates and try each. Capped at 5 to
+    //    bound the worst-case cost — beyond that we'd be burning
+    //    network for a tiny census-designated place that probably
+    //    has no image anyway.
+    let disambigCandidates: string[] = [];
+    if (disambigTitle) {
+      disambigCandidates = (
+        await fetchDisambiguationPlaceLinks(disambigTitle, stats)
+      ).slice(0, 5);
+      for (const candidate of disambigCandidates) {
+        const candidateImg = pickImageFromSummary(
+          await fetchSummary(candidate, stats),
+        );
+        if (candidateImg) return candidateImg;
+      }
+    }
+
+    // 4) Deeper image fallback. Wikipedia's `pageimage` property
+    //    isn't always populated even on well-illustrated articles
+    //    (e.g. "Whistler, British Columbia" has the Olympic Inukshuk
+    //    statue as its lead image, but the summary endpoint returns
+    //    no thumbnail). Walk the article's image list directly via
+    //    `prop=images` and pick the first content image. We try this
+    //    on the disambiguation candidates first (most likely to be
+    //    the city the user meant), then fall back to the matched
+    //    search title.
+    const imageWalkTargets = [
+      ...disambigCandidates,
+      ...(matchedTitle ? [matchedTitle] : []),
+    ].filter(Boolean);
+    for (const target of imageWalkTargets.slice(0, 3)) {
+      const found = await fetchFirstArticleImage(target, stats);
+      if (found) return found;
+    }
+
+    // 5) Country fallback so cruise stops and small towns still show
+    //    *something* recognisable.
+    if (country) {
+      const countryResult = pickImageFromSummary(await fetchSummary(country, stats));
+      if (countryResult) return countryResult;
+    }
+
+    return null;
+  }
 }
 
 /**

@@ -268,6 +268,16 @@ describe("createTripSchema", () => {
 });
 
 describe("updateTripSchema", () => {
+  it("accepts, trims, and clears coverLocation", () => {
+    const set = updateTripSchema.safeParse({ coverLocation: "  Alhambra " });
+    expect(set.success && set.data.coverLocation).toBe("Alhambra");
+    expect(updateTripSchema.safeParse({ coverLocation: null }).success).toBe(true);
+    expect(updateTripSchema.safeParse({ coverLocation: "" }).success).toBe(true);
+    expect(
+      updateTripSchema.safeParse({ coverLocation: "x".repeat(121) }).success,
+    ).toBe(false);
+  });
+
   it("accepts partial updates", () => {
     expect(updateTripSchema.safeParse({ title: "New Title" }).success).toBe(true);
     expect(updateTripSchema.safeParse({ status: "active" }).success).toBe(true);
