@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { ApiError, useUpdateTrip } from "@itinly/api-client";
-import type { Trip, TripStatus } from "@itinly/shared";
+import type { Trip, TripStatus, UpdateTripInput } from "@itinly/shared";
 import { TRIP_STATUSES } from "@itinly/shared";
 import { AlertCircle, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toastMutationError } from "@/lib/api-error";
 import { useConfirm } from "@/lib/confirm-dialog";
+import { CoverPhotoPreview } from "@/components/cover-photo-preview";
 import { MobileBottomSheet } from "./mobile-bottom-sheet";
 
 interface OverlapInfo {
@@ -72,6 +73,7 @@ function EditTripBody({
   const [startDate, setStartDate] = useState(trip.startDate);
   const [endDate, setEndDate] = useState(trip.endDate);
   const [status, setStatus] = useState<TripStatus>(trip.status);
+  const [coverLocation, setCoverLocation] = useState(trip.coverLocation ?? "");
   const [overlap, setOverlap] = useState<OverlapInfo[] | null>(null);
 
   const datesInOrder = startDate <= endDate;
@@ -79,11 +81,14 @@ function EditTripBody({
   const canSave = titleValid && datesInOrder;
 
   const trimmedTitle = title.trim();
+  const trimmedCover = coverLocation.trim();
+  const coverChanged = trimmedCover !== (trip.coverLocation ?? "");
   const hasChanges =
     trimmedTitle !== trip.title ||
     startDate !== trip.startDate ||
     endDate !== trip.endDate ||
-    status !== trip.status;
+    status !== trip.status ||
+    coverChanged;
 
   const confirm = useConfirm();
 
@@ -120,11 +125,12 @@ function EditTripBody({
       }
     }
 
-    const updates: Record<string, string> = {};
+    const updates: UpdateTripInput = {};
     if (trimmedTitle !== trip.title) updates.title = trimmedTitle;
     if (startDate !== trip.startDate) updates.startDate = startDate;
     if (endDate !== trip.endDate) updates.endDate = endDate;
     if (status !== trip.status) updates.status = status;
+    if (coverChanged) updates.coverLocation = trimmedCover || null;
 
     updateTrip.mutate(updates, {
       onSuccess: onClose,
@@ -269,6 +275,36 @@ function EditTripBody({
               );
             })}
           </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <label
+              htmlFor="m-edit-trip-cover"
+              className="text-kicker font-medium text-muted-foreground"
+            >
+              Cover photo
+            </label>
+            {trimmedCover && (
+              <button
+                type="button"
+                onClick={() => setCoverLocation("")}
+                className="text-xs font-medium text-primary"
+              >
+                Use automatic
+              </button>
+            )}
+          </div>
+          <input
+            id="m-edit-trip-cover"
+            type="text"
+            value={coverLocation}
+            maxLength={120}
+            placeholder="Automatic — or a city or attraction, e.g. Alhambra"
+            onChange={(e) => setCoverLocation(e.target.value)}
+            className="h-11 w-full rounded-xl border bg-background px-3 text-base text-foreground outline-none focus:border-foreground"
+          />
+          <CoverPhotoPreview trip={trip} value={coverLocation} />
         </div>
 
         {overlap && (

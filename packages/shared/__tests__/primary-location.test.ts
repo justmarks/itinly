@@ -375,4 +375,145 @@ describe("primaryLocationFor", () => {
       expect(result?.country).toBe("Spain");
     });
   });
+
+  describe("title hint", () => {
+    // Seattle → London stopover (3 days) → Madrid / Seville (2 each) → Seattle.
+    const spainDays = [
+      day("2026-12-25", "Seattle / London"),
+      day("2026-12-26", "London"),
+      day("2026-12-27", "London"),
+      day("2026-12-28", "London / Madrid"),
+      day("2026-12-29", "Madrid"),
+      day("2026-12-30", "Seville"),
+      day("2026-12-31", "Seville / Seattle"),
+    ];
+
+    it("without a title, picks the most-days city", () => {
+      expect(primaryLocationFor({ days: spainDays })?.city).toBe("London");
+    });
+
+    it("prefers cities in the country the title names", () => {
+      const result = primaryLocationFor({
+        title: "Spain December 2026",
+        days: spainDays,
+      });
+      expect(result?.city).toBe("Madrid");
+      expect(result?.countryCode).toBe("ES");
+    });
+
+    it("prefers a city the title names", () => {
+      const result = primaryLocationFor({
+        title: "Seville for New Year's",
+        days: spainDays,
+      });
+      expect(result?.city).toBe("Seville");
+    });
+
+    it("matches informal country names", () => {
+      const result = primaryLocationFor({
+        title: "UK & Spain",
+        days: spainDays,
+      });
+      expect(result?.city).toBe("London");
+    });
+
+    it("ignores a title that names no trip city or country", () => {
+      const result = primaryLocationFor({
+        title: "Christmas break",
+        days: spainDays,
+      });
+      expect(result?.city).toBe("London");
+    });
+
+    it("ignores a title country with no matching trip city", () => {
+      const result = primaryLocationFor({
+        title: "Italy someday",
+        days: spainDays,
+      });
+      expect(result?.city).toBe("London");
+    });
+
+    it("only matches whole words", () => {
+      // "Romeo" must not count as a mention of Rome.
+      const result = primaryLocationFor({
+        title: "Romeo and Juliet tour",
+        days: [
+          day("2026-05-01", "Verona"),
+          day("2026-05-02", "Verona"),
+          day("2026-05-03", "Rome"),
+        ],
+      });
+      expect(result?.city).toBe("Verona");
+    });
+  });
+
+  describe("cover location override", () => {
+    const days = [
+      day("2026-12-26", "London"),
+      day("2026-12-27", "London"),
+      day("2026-12-28", "Granada"),
+    ];
+
+    it("uses the cover city and its own country", () => {
+      const result = primaryLocationFor({ days, coverLocation: "Paris" });
+      expect(result).toEqual({
+        city: "Paris",
+        countryCode: "FR",
+        country: "France",
+        dayCount: 0,
+        kind: "cover",
+      });
+    });
+
+    it("borrows the automatic pick's country for an attraction", () => {
+      const result = primaryLocationFor({
+        title: "Spain December 2026",
+        days: [...days, day("2026-12-29", "Madrid")],
+        coverLocation: "Alhambra",
+      });
+      expect(result?.city).toBe("Alhambra");
+      expect(result?.kind).toBe("cover");
+      expect(result?.countryCode).toBe("ES");
+    });
+
+    it("works on a trip with no city data", () => {
+      const result = primaryLocationFor({
+        days: [day("2026-12-26", "")],
+        coverLocation: "Alhambra",
+      });
+      expect(result?.city).toBe("Alhambra");
+      expect(result?.countryCode).toBeUndefined();
+    });
+
+    it("overrides a dominant cruise", () => {
+      const result = primaryLocationFor({
+        days: [
+          day("2026-03-01", "Port Canaveral", [
+            cruiseSegment("Disney Fantasy — 3-night", "2026-03-03"),
+          ]),
+          day("2026-03-02", "At Sea"),
+          day("2026-03-03", "Nassau"),
+        ],
+        coverLocation: "Castaway Cay",
+      });
+      expect(result?.city).toBe("Castaway Cay");
+      expect(result?.countryCode).toBe("BS");
+    });
+
+    it("reads the country from a comma-qualified cover location", () => {
+      const result = primaryLocationFor({
+        days,
+        coverLocation: "Granada, Nicaragua",
+      });
+      expect(result?.city).toBe("Granada, Nicaragua");
+      expect(result?.countryCode).toBe("NI");
+      expect(result?.country).toBe("Nicaragua");
+    });
+
+    it("treats a blank cover location as automatic", () => {
+      const result = primaryLocationFor({ days, coverLocation: "   " });
+      expect(result?.city).toBe("London");
+      expect(result?.kind).toBe("city");
+    });
+  });
 });

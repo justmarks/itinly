@@ -27,9 +27,11 @@ export interface PrimaryLocation {
   /**
    * What kind of subject `city` refers to. The UI uses this to skip
    * country-flag rendering for ships and to relax the "Untitled
-   * destination" copy when a ship has no flag.
+   * destination" copy when a ship has no flag. `"cover"` means the user
+   * picked the subject themselves (`Trip.coverLocation`) — a city or an
+   * attraction such as "Alhambra".
    */
-  kind: "city" | "cruise";
+  kind: "city" | "cruise" | "cover";
 }
 
 /** Lowercase + strip diacritics. Used internally for map lookups. */
@@ -184,6 +186,12 @@ function lookupCountry(rawCity: string): { code: string; name: string } | undefi
     .filter(Boolean);
   for (const part of parts.slice(1)) {
     if (CITY_TO_COUNTRY[part]) return CITY_TO_COUNTRY[part];
+    // "Granada, Nicaragua" / "Alhambra, Spain" — the suffix is a country.
+    const byName = countryNameEntries().find(([name]) => name === part);
+    if (byName) {
+      const name = countryName(byName[1]);
+      if (name) return { code: byName[1], name };
+    }
   }
   // Last resort: the airport dataset covers every city with a large
   // airport ("San Juan" → PR, "Seville" → ES). Gives the trip card a flag
@@ -330,16 +338,19 @@ function findBookendKeys(trip: Pick<Trip, "days">): Set<string> {
 }
 
 /**
- * Pick the most representative location for a trip's hero image. For
- * cruise-dominant trips this is the ship name; otherwise it's the city the
- * user spends the most days in. Returns `undefined` for trips with no
- * usable data (all empty / all "at sea" with no cruise segment).
+ * Pick the most representative location for a trip's hero image. A
+ * user-chosen `coverLocation` (city or attraction) always wins. Otherwise,
+ * for cruise-dominant trips this is the ship name; otherwise it's the city
+ * the user spends the most days in — limited to the cities the trip title
+ * names (directly or via their country) when it names any. Returns
+ * `undefined` for trips with no usable data (all empty / all "at sea"
+ * with no cruise segment) and no cover location.
  *
  * Cities are grouped by their normalised form so "Reykjavík" and "Reykjavik"
  * are treated as the same place; the displayed `city` is taken from the
  * first day in that group (preserving the user's original casing/diacritics).
  *
- * Two refinements beyond pure day-count:
+ * Refinements beyond pure day-count:
  * 1. Transfer days encoded as "Paris / Rome" count toward each city
  *    individually (see `normalizeCities`).
  * 2. If the first and last days of the trip share the same city, that
@@ -349,8 +360,35 @@ function findBookendKeys(trip: Pick<Trip, "days">): Set<string> {
  *    automatically if it would leave the trip with no candidates (e.g.
  *    a local Seattle staycation), in which case the bookend wins as
  *    primary after all.
+ * 3. Title hint — see `filterByTitleHint`.
  */
-export function primaryLocationFor(trip: Pick<Trip, "days">): PrimaryLocation | undefined {
+export function primaryLocationFor(
+  trip: Pick<Trip, "days"> & Partial<Pick<Trip, "title" | "coverLocation">>,
+): PrimaryLocation | undefined {
+  const automatic = automaticLocationFor(trip);
+  const cover = trip.coverLocation?.trim();
+  if (!cover) return automatic;
+
+  // An attraction ("Alhambra") won't resolve to a country on its own, so
+  // borrow the automatic pick's — the user chose a subject inside the
+  // trip, so that's the best guess for the flag.
+  const country =
+    lookupCountry(cover) ??
+    (automatic?.countryCode && automatic.country
+      ? { code: automatic.countryCode, name: automatic.country }
+      : undefined);
+  return {
+    city: cover,
+    countryCode: country?.code,
+    country: country?.name,
+    dayCount: 0,
+    kind: "cover",
+  };
+}
+
+function automaticLocationFor(
+  trip: Pick<Trip, "days"> & Partial<Pick<Trip, "title">>,
+): PrimaryLocation | undefined {
   const cruise = findCruiseLocation(trip);
   if (cruise) return cruise;
 
@@ -383,6 +421,13 @@ export function primaryLocationFor(trip: Pick<Trip, "days">): PrimaryLocation | 
   }
   if (groups.size === 0) return undefined;
 
+  // Title hint: "Spain December 2026" with more days in London (a
+  // stopover) should still pick a Spanish city. When the title names a
+  // country or one of the trip's cities, only those candidates compete.
+  // Titles that name nothing we recognise leave the tally untouched.
+  const hinted = filterByTitleHint(groups, trip.title);
+  if (hinted.size > 0) groups = hinted;
+
   // Highest count, tie-break on earliest first appearance.
   let winner: { display: string; count: number; firstIndex: number } | undefined;
   for (const group of groups.values()) {
@@ -404,6 +449,78 @@ export function primaryLocationFor(trip: Pick<Trip, "days">): PrimaryLocation | 
     dayCount: winner.count,
     kind: "city",
   };
+}
+
+/** Folded title padded with spaces, punctuation → spaces, for word matching. */
+function titleWords(title: string): string {
+  return ` ${fold(title).replace(/[^a-z0-9]+/g, " ").trim()} `;
+}
+
+function titleMentions(words: string, phrase: string): boolean {
+  const needle = fold(phrase).replace(/[^a-z0-9]+/g, " ").trim();
+  return needle.length > 0 && words.includes(` ${needle} `);
+}
+
+function filterByTitleHint<G>(
+  groups: Map<string, G & { display: string }>,
+  title: string | undefined,
+): Map<string, G & { display: string }> {
+  const result = new Map<string, G & { display: string }>();
+  if (!title) return result;
+  const words = titleWords(title);
+  const titleCountries = new Set(
+    countryNameEntries()
+      .filter(([name]) => titleMentions(words, name))
+      .map(([, code]) => code),
+  );
+  for (const [key, group] of groups) {
+    const mentionsCity = titleMentions(words, key);
+    const code = lookupCountry(group.display)?.code;
+    if (mentionsCity || (code && titleCountries.has(code))) {
+      result.set(key, group);
+    }
+  }
+  return result;
+}
+
+/**
+ * Informal country names people put in trip titles that differ from the
+ * `Intl.DisplayNames` English name. Kept small — only names that are
+ * unambiguous as whole words in a title.
+ */
+const COUNTRY_ALIASES: Record<string, string> = {
+  usa: "US",
+  america: "US",
+  uk: "GB",
+  britain: "GB",
+  "great britain": "GB",
+  england: "GB",
+  scotland: "GB",
+  wales: "GB",
+  holland: "NL",
+  turkey: "TR",
+  korea: "KR",
+  czech: "CZ",
+  uae: "AE",
+};
+
+let countryNameCache: Array<[string, string]> | undefined;
+
+/** [folded country name or alias, ISO code] for every known country. */
+function countryNameEntries(): Array<[string, string]> {
+  if (countryNameCache) return countryNameCache;
+  const codes = new Set<string>(Object.values(CITY_TO_COUNTRY).map((c) => c.code));
+  for (const { country } of Object.values(AIRPORTS)) codes.add(country);
+  const entries: Array<[string, string]> = [];
+  for (const code of codes) {
+    const name = countryName(code);
+    if (name) entries.push([fold(name), code]);
+  }
+  for (const [alias, code] of Object.entries(COUNTRY_ALIASES)) {
+    entries.push([alias, code]);
+  }
+  countryNameCache = entries;
+  return entries;
 }
 
 /**

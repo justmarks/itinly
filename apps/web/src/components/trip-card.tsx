@@ -41,10 +41,12 @@ import {
   Trash2,
   Pencil,
   Check,
+  ImageIcon,
   Users,
   X,
 } from "lucide-react";
 import { ShareTripDialog } from "@/components/share-trip-dialog";
+import { CoverPhotoDialog } from "@/components/cover-photo-dialog";
 
 /**
  * Map each trip status to a `--status-*` token. Pulled out so the
@@ -182,6 +184,7 @@ export function TripCard({ trip }: { trip: TripSummary }): React.JSX.Element {
   const showMenu = canEdit || canDelete || canShare || canLeave;
 
   const [shareOpen, setShareOpen] = useState(false);
+  const [coverOpen, setCoverOpen] = useState(false);
 
   const handleDelete = async () => {
     const ok = await confirm({
@@ -303,6 +306,12 @@ export function TripCard({ trip }: { trip: TripSummary }): React.JSX.Element {
                 >
                   <Pencil className="mr-2 h-4 w-4" />
                   Rename
+                </DropdownMenuItem>
+              )}
+              {canEdit && (
+                <DropdownMenuItem onClick={() => setCoverOpen(true)}>
+                  <ImageIcon className="mr-2 h-4 w-4" />
+                  Change cover photo…
                 </DropdownMenuItem>
               )}
               {canDelete && (
@@ -427,6 +436,14 @@ export function TripCard({ trip }: { trip: TripSummary }): React.JSX.Element {
           tripId={trip.id}
           open={shareOpen}
           onOpenChange={setShareOpen}
+        />
+      )}
+      {canEdit && (
+        // Same card-level mounting as ShareTripDialog above.
+        <CoverPhotoDialog
+          tripId={trip.id}
+          open={coverOpen}
+          onOpenChange={setCoverOpen}
         />
       )}
     </Card>
