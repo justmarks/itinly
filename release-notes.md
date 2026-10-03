@@ -1,3 +1,36 @@
+# itinly v1.7.0
+
+Trip cards get the picture right. **Pick your own cover photo** — any city or attraction, like "Alhambra" or "Sagrada Família" — from the trip card menu on desktop or **Edit trip** on mobile, with a live preview. When you leave it on automatic, **the trip title now steers the pick**: "Spain December 2026" shows a Spanish city even if a London stopover has more days. And **trip photos load again** — Wikipedia moved its thumbnails to a new host that itinly was blocking, so cards had been showing a broken image or a plain gradient. Plus email scans read the **HTML body when the plain-text part is a stub**, restaurant confirmations keep their **cancellation policy**, and a crash that blanked the app in privacy-hardened browsers is fixed.
+
+## Trip cover photos
+
+- **Choose the cover photo.** A trip's card photo can now be any city or attraction you name — "Alhambra", "Granada", "Skógafoss". On desktop it's **Change cover photo…** in the trip card's ⋯ menu (and the trip page's ⋯ menu); on mobile it's the **Cover photo** field in **Edit trip**. A live preview shows the photo before you save, empty means automatic (and the preview shows what automatic picks), and "Use automatic" clears your choice. Attractions borrow the trip's country for the flag, so "Alhambra" on a Spain trip still shows 🇪🇸. Add a country to disambiguate — "Granada, Nicaragua" finds the Nicaraguan city.
+- **The title steers the automatic pick.** When the trip title names a country or one of the trip's cities, only those cities compete for the card — "Spain December 2026" picks Madrid over a longer London stopover. Informal names work too (UK, England, USA, Holland). Titles that name nothing recognisable behave exactly as before.
+- **More flags.** Cities outside the built-in list now get their country from the airport dataset — San Juan resolves to Puerto Rico 🇵🇷. Names shared by airports in several countries (Valencia in Spain and Venezuela) are skipped rather than guessed.
+
+## Trip photos load again
+
+- **Wikipedia's new image host is allowed.** Wikipedia began serving thumbnails from `thumb.wikimedia.org` instead of `upload.wikimedia.org`, and itinly's content-security policy blocked every one — on every browser. The new host is allowed in the policy, the service worker's image cache, and the photo proxy.
+- **Photos load through itinly's own domain.** A new `/api/wiki-image` route fetches the thumbnail server-side and serves it same-origin, so cross-origin rules, the offline cache, and Wikimedia throttling of shared connections (e.g. iCloud Private Relay) can't block it. The browser falls back to loading Wikimedia directly, then to the gradient. The route only accepts Wikimedia image URLs, refuses redirects and non-images, caps size at 5 MB, and caches successes at the CDN.
+- **No more broken-image icons.** A photo that can't load now leaves the card's colour gradient instead of the browser's broken-image glyph plus a duplicated title. Thumbnails are requested at Wikimedia's standard sizes.
+
+## Email scanning
+
+- **HTML body when the plain text is a stub.** Some confirmations (TheFork / Mailjet, museum tickets) ship a plain-text part that's just the subject line or boilerplate without the booking lines, so they parsed as "no travel content". Gmail scans and EML imports now compare the plain-text and HTML parts and use the one with the booking details.
+- **Restaurant cancellation policies are kept.** "Cancel 24h in advance" or "No-shows charged $50/person" now lands in the segment's Details field, even when the confirmation quotes no price.
+- **Reconnect when the email connection times out.** A desktop scan that times out talking to your mailbox now offers a one-click reconnect instead of a dead end.
+
+## Reliability
+
+- **Privacy-hardened browsers no longer crash the app.** Brave, Firefox with resist-fingerprinting, and some privacy extensions make canvas reads return nothing, which crashed the country-flag polyfill and blanked the whole app. The polyfill failure is now caught — flags fall back to country-code letters.
+
+## Under the hood
+
+- **Migration `0009_trip_cover_location`** adds a nullable `trips.cover_location` column — metadata-only, existing trips stay automatic.
+- **Tests grew to 1,110** across 68 test suites — new coverage for the title hint, cover-location override, airport-dataset country fallback, plain-text vs. HTML body selection, and the cover-location route + storage round-trip.
+
+---
+
 # itinly v1.6.0
 
 Booking confirmations that arrive as several emails now collapse into one segment that keeps **every confirmation number** — book two rooms at the same hotel or three seats on the same flight as separate reservations, and the merged segment lists all the confirmation codes comma-separated, the same way it already combined seat assignments. The segment **Details** field now **saves even when you don't enter a price** — a flight note like "Premium Economy, 2 checked bags" no longer vanishes on save just because the cost was left blank. And **label-scoped Gmail scans stop hiding older bookings**: scanning a Gmail label now returns every matching email regardless of age, instead of quietly dropping anything more than a year old.
