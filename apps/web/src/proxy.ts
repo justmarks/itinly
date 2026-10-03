@@ -94,7 +94,10 @@ function buildCsp(nonce: string): string {
       "'self'",
       "data:",
       "blob:",
+      // Wikipedia thumbnails. `thumb.` is where the summary API points
+      // now; `upload.` serves originals. See src/lib/wikimedia-hosts.ts.
       "https://upload.wikimedia.org",
+      "https://thumb.wikimedia.org",
       "https://*.wikipedia.org",
       "https://*.googleusercontent.com",
       "https://*.gstatic.com",
@@ -106,7 +109,9 @@ function buildCsp(nonce: string): string {
       "https://accounts.google.com",
       "https://*.googleapis.com",
       "https://en.wikipedia.org",
+      // The service worker re-fetches card photos to cache them.
       "https://upload.wikimedia.org",
+      "https://thumb.wikimedia.org",
       // Sentry browser SDK envelope POSTs. New projects are
       // provisioned on regional ingest hosts (`*.ingest.us.sentry.io`
       // for US-hosted orgs, `.de.` for EU); the unregionalised
