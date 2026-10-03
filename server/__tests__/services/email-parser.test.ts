@@ -247,6 +247,63 @@ describe("EmailParser.parseEmail", () => {
     expect(result.segments[0].cost?.currency).toBe("USD");
   });
 
+  it("keeps a details-only cost (cancellation policy, no price) with amount 0", async () => {
+    mockCreate.mockReturnValueOnce(
+      aiResponse(
+        JSON.stringify([
+          {
+            type: "restaurant_dinner",
+            title: "Dinner at Canlis",
+            date: "2026-09-01",
+            startTime: "19:30",
+            city: "Seattle",
+            venueName: "Canlis",
+            confidence: "high",
+            cost: {
+              details:
+                "Cancel at least 24 hours in advance; no-shows charged $50 per person.",
+            },
+          },
+        ]),
+      ),
+    );
+    const result = await parser.parseEmail({
+      subject: "Your Canlis reservation is confirmed",
+      from: "reservations@canlis.com",
+      body: "...",
+    });
+    expect(result.segments).toHaveLength(1);
+    expect(result.segments[0].cost).toEqual({
+      amount: 0,
+      currency: "USD",
+      details:
+        "Cancel at least 24 hours in advance; no-shows charged $50 per person.",
+    });
+  });
+
+  it("drops a cost with neither a valid amount nor details", async () => {
+    mockCreate.mockReturnValueOnce(
+      aiResponse(
+        JSON.stringify([
+          {
+            type: "restaurant_dinner",
+            title: "Dinner",
+            date: "2026-09-02",
+            city: "Seattle",
+            confidence: "high",
+            cost: { currency: "USD" },
+          },
+        ]),
+      ),
+    );
+    const result = await parser.parseEmail({
+      subject: "Reservation",
+      from: "r@test.com",
+      body: "...",
+    });
+    expect(result.segments[0].cost).toBeUndefined();
+  });
+
   it("drops invalid URLs so Zod validation still passes", async () => {
     mockCreate.mockReturnValueOnce(
       aiResponse(

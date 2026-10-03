@@ -43,6 +43,7 @@ import {
   useDelayedLoadingHint,
 } from "@/components/trip-card-skeleton";
 import { AppLogo } from "@/components/app-logo";
+import { CityHeroImage } from "@/components/city-hero-image";
 import {
   daysUntil,
   flagEmoji,
@@ -104,17 +105,7 @@ function MobileTripHero({ trip }: { trip: TripSummary }) {
       }}
     >
       {image ? (
-        // Wikipedia thumbnails — see trip-card.tsx for why we use a plain
-        // <img> instead of next/image, and why `crossOrigin="anonymous"`
-        // is required by our COEP `credentialless` header.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={image.url}
-          alt={trip.title}
-          loading="lazy"
-          crossOrigin="anonymous"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
+        <CityHeroImage image={image} />
       ) : (
         !trip.primaryCity && (
           <div className="absolute inset-0 flex items-center justify-center text-white/70">

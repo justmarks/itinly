@@ -69,6 +69,7 @@ IMPORTANT RULES:
   For example: if the email was received on 2026-01-15 and mentions "Wednesday, April 15", the correct date is 2026-04-15 (same year, since April 15 is after January 15). If the email was received on 2026-11-15 and mentions "Friday, January 20", the correct date is 2027-01-20 (next year, since January 20 has already passed in 2026).
 - Only include fields that are actually present in the email. Do not guess or fabricate data.
 - For restaurant types, use restaurant_breakfast, restaurant_brunch, restaurant_lunch, or restaurant_dinner based on time or context.
+- **RESTAURANTS**: When the reservation email states a cancellation policy — e.g. "Cancel at least 24 hours in advance", "No-shows are charged $50 per person", "Cancellations within 48 hours forfeit the deposit", "Free cancellation until 6 PM the day before" — capture that policy VERBATIM (or lightly condensed) in the cost "details" string. Do this even when the email lists NO price: return "cost": { "details": "<the cancellation policy>" } WITHOUT an "amount" field in that case. When the email DOES state a price or deposit, put the amount in "cost.amount" and still append the cancellation policy to "cost.details". If no cancellation policy is mentioned, omit it — do not invent one.
 - **PLACEHOLDER / TBD RESERVATIONS**: Skip emails that describe a booking with no fixed travel dates (Disney Cruise Line "Placeholder Reservation" with "Embark Date: TBD", airline "open ticket" / future-credit stubs, "book by date" promotions). These have nothing to put on a calendar. Do NOT return a segment with "date": "TBD", an empty date, or a free-form date string like "Spring 2026" — return an empty array for that email instead.
 - **NO MARKETING / RECOMMENDATIONS**: Do NOT extract venues, restaurants, attractions, theme parks, or experiences that the email merely mentions, recommends, lists as available, or describes in marketing copy. A booking is something the recipient has actually reserved with a confirmation number, ticket, or fixed date+time. If an email says "Visit Tiffins Restaurant for delicious cuisine" or "Don't miss Magic Kingdom Park" or "Check out Disney Springs", those are NOT bookings — they're promotional content. The presence of a restaurant or attraction name in an email is not enough to extract a segment; there must be evidence of an actual reservation tied to a specific date and time the recipient has committed to.
 - **PRE-TRIP REMINDER EMAILS**: Skip emails whose primary purpose is to remind the recipient of an existing upcoming booking, even when they include a summary header showing the reservation details (resort name, dates, confirmation #). Typical subject lines and openers: "Your magical vacation is approaching", "Your trip is coming up", "Get ready for your stay", "Things to know before your visit", "Countdown to your trip", "Your stay begins in N days", "Pre-trip information". These are sent BY the booking provider weeks or days before the trip to surface tips, marketing, and reminders — the recipient already has the original confirmation parsed elsewhere, and re-extracting the summary header would create a duplicate. Return an empty array for these emails. Distinguish from the ORIGINAL booking confirmation (typical openers: "Your reservation is confirmed", "Booking confirmation", "Your reservation #", "Thank you for booking"), which should be parsed normally.
@@ -528,6 +529,14 @@ export class EmailParser {
   /**
    * Normalize cost field so Zod validation doesn't silently strip it.
    * Handles: string amounts ("547.20", "$547.20"), missing currency, etc.
+   *
+   * Details-only costs are preserved with `amount: 0`, mirroring
+   * `buildSegmentCost` in the web form (#436): the free-form "Details"
+   * field is stored as `cost.details`, so a segment can carry details
+   * with NO price — e.g. a restaurant reservation's cancellation policy
+   * ("No-shows charged $50/person") on an email that quotes no total.
+   * Display + cost-total surfaces treat a 0 amount as "no price", so the
+   * note doesn't render as "$0.00" or show up as a $0 line in Costs.
    */
   private normalizeCost(
     cost: unknown,
@@ -543,7 +552,15 @@ export class EmailParser {
       const cleaned = c.amount.replace(/[^0-9.,\-]/g, "").replace(/,/g, "");
       amount = parseFloat(cleaned);
     }
-    if (amount === undefined || isNaN(amount) || amount < 0) return undefined;
+    const hasAmount = amount !== undefined && !isNaN(amount) && amount >= 0;
+
+    const details =
+      typeof c.details === "string" && c.details.trim().length > 0
+        ? c.details
+        : undefined;
+
+    // Nothing usable — no valid amount AND no details to preserve.
+    if (!hasAmount && !details) return undefined;
 
     // Default currency to USD if missing
     const currency =
@@ -551,10 +568,11 @@ export class EmailParser {
         ? c.currency
         : "USD";
 
-    const details =
-      typeof c.details === "string" ? c.details : undefined;
-
-    return { amount, currency, ...(details ? { details } : {}) };
+    return {
+      amount: hasAmount ? (amount as number) : 0,
+      currency,
+      ...(details ? { details } : {}),
+    };
   }
 
   /** Parse and validate Claude's JSON response */

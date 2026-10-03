@@ -8,6 +8,7 @@
  */
 
 import type { Trip, TripDay } from "../types/trip";
+import { AIRPORTS } from "./airports-data";
 
 export interface PrimaryLocation {
   /**
@@ -184,7 +185,51 @@ function lookupCountry(rawCity: string): { code: string; name: string } | undefi
   for (const part of parts.slice(1)) {
     if (CITY_TO_COUNTRY[part]) return CITY_TO_COUNTRY[part];
   }
+  // Last resort: the airport dataset covers every city with a large
+  // airport ("San Juan" → PR, "Seville" → ES). Gives the trip card a flag
+  // and lets the hero-image search disambiguate ("San Juan Puerto Rico"
+  // instead of the "San Juan" disambiguation page).
+  const code = airportCityCountries().get(head);
+  if (code) {
+    const name = countryName(code);
+    if (name) return { code, name };
+  }
   return undefined;
+}
+
+let airportCityCountryCache: Map<string, string> | undefined;
+
+/**
+ * Normalised city → ISO country code, built from `AIRPORTS`. Cities whose
+ * name maps to airports in more than one country ("Valencia" → ES and VE)
+ * are dropped — guessing would put the wrong flag on the card.
+ */
+function airportCityCountries(): Map<string, string> {
+  if (airportCityCountryCache) return airportCityCountryCache;
+  const byCity = new Map<string, string | null>();
+  for (const { city, country } of Object.values(AIRPORTS)) {
+    const key = normalizeCity(city);
+    if (!key) continue;
+    const prev = byCity.get(key);
+    if (prev === undefined) byCity.set(key, country);
+    else if (prev !== country) byCity.set(key, null);
+  }
+  const result = new Map<string, string>();
+  for (const [key, country] of byCity) {
+    if (country) result.set(key, country);
+  }
+  airportCityCountryCache = result;
+  return result;
+}
+
+/** ISO alpha-2 → English country name ("PR" → "Puerto Rico"). */
+function countryName(code: string): string | undefined {
+  try {
+    const name = new Intl.DisplayNames(["en"], { type: "region" }).of(code);
+    return name && name !== code ? name : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
