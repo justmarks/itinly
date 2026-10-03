@@ -26,8 +26,11 @@ import type { CityImage } from "@/lib/trip-card-visuals";
  */
 export function CityHeroImage({
   image,
+  onLoadError,
 }: {
   image: CityImage;
+  /** Called once when the photo fails to load (before it unmounts). */
+  onLoadError?: (url: string) => void;
 }): React.JSX.Element | null {
   // Track the failed URL rather than a boolean so a new URL for the same
   // card (city edited, cache refreshed) gets a fresh attempt.
@@ -45,6 +48,7 @@ export function CityHeroImage({
       onError={() => {
         console.warn(`[trip-card-visuals] hero image failed to load: ${image.url}`);
         setFailedUrl(image.url);
+        onLoadError?.(image.url);
       }}
       className="absolute inset-0 h-full w-full object-cover"
     />

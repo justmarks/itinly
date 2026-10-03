@@ -39,10 +39,14 @@ export function CoverPhotoPreview({
     title: trip.title,
     coverLocation: debounced,
   });
-  const { image, isLoading } = useCityImageLookup(
+  const { image, isLoading, unreachable } = useCityImageLookup(
     location?.city,
     location?.country,
   );
+  // The URL of a photo that was found but couldn't be loaded — tracked
+  // by URL so a new lookup result clears it.
+  const [failedUrl, setFailedUrl] = useState<string | undefined>();
+  const loadFailed = image !== undefined && failedUrl === image.url;
   const gradient = gradientFor(location?.city ?? trip.title);
   const flag = flagEmoji(location?.countryCode);
   const label = debounced
@@ -59,7 +63,7 @@ export function CoverPhotoPreview({
           backgroundImage: `linear-gradient(135deg, ${gradient.from}, ${gradient.to})`,
         }}
       >
-        {image && <CityHeroImage image={image} />}
+        {image && <CityHeroImage image={image} onLoadError={setFailedUrl} />}
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
         {isLoading && (
           <Loader2 className="absolute right-2 top-2 h-4 w-4 animate-spin text-white/80" />
@@ -69,12 +73,37 @@ export function CoverPhotoPreview({
           <span className="truncate">{label}</span>
         </div>
       </div>
-      {debounced && !isLoading && !image && (
-        <p className="text-xs" style={{ color: "var(--status-warn-fg)" }}>
-          No photo found for “{debounced}”. Try its full name, or add the
-          country — e.g. “Granada, Spain”.
-        </p>
+      {/* Three different failures, worded so a user report pins down
+          which one it was: network / blocked, no Wikipedia photo, or a
+          photo URL the browser couldn't load. */}
+      {unreachable ? (
+        <PreviewWarning>
+          Couldn&apos;t reach Wikipedia to look up a photo. Check your
+          connection and try again.
+        </PreviewWarning>
+      ) : loadFailed ? (
+        <PreviewWarning>
+          Found a photo for “{location?.city}”, but it couldn&apos;t be
+          loaded on this device.
+        </PreviewWarning>
+      ) : (
+        debounced &&
+        !isLoading &&
+        !image && (
+          <PreviewWarning>
+            No photo found for “{debounced}”. Try its full name, or add the
+            country — e.g. “Granada, Spain”.
+          </PreviewWarning>
+        )
       )}
     </div>
+  );
+}
+
+function PreviewWarning({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs" style={{ color: "var(--status-warn-fg)" }}>
+      {children}
+    </p>
   );
 }
