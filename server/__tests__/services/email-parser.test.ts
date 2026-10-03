@@ -808,7 +808,7 @@ describe("EmailParser.emlToEmail", () => {
       `--${boundary}`,
       "Content-Type: text/html; charset=utf-8",
       "",
-      "<html><body><p>Reservation <strong>ABC123</strong></p></body></html>",
+      "<html><body><p>Reservation <strong>ABC123</strong> is confirmed for your stay.</p></body></html>",
       "",
       `--${boundary}--`,
       "",
