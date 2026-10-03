@@ -120,7 +120,7 @@ async function fetchFirstArticleImage(
   const url =
     `https://en.wikipedia.org/w/api.php` +
     `?action=query&format=json&generator=images&gimlimit=10` +
-    `&prop=imageinfo&iiprop=url&iiurlwidth=400` +
+    `&prop=imageinfo&iiprop=url&iiurlwidth=${HERO_THUMB_WIDTH}` +
     `&titles=${encodeURIComponent(title.replace(/\s+/g, "_"))}` +
     `&origin=*`;
   try {
@@ -154,7 +154,7 @@ async function fetchFirstArticleImage(
       const info = page.imageinfo?.[0];
       if (info?.thumburl) {
         return {
-          url: info.thumburl,
+          url: standardizeWikimediaThumbUrl(info.thumburl),
           pageUrl: info.descriptionurl,
         };
       }
@@ -247,13 +247,52 @@ async function searchForArticleTitle(
   }
 }
 
+/**
+ * Wikimedia's standard thumbnail widths. upload.wikimedia.org pre-renders
+ * and caches these; other widths are rendered on demand and are subject to
+ * much stricter rate limits, so a non-standard URL (the summary endpoint
+ * hands back `320px-…`) can come back as an error and leave the trip card
+ * with a broken image.
+ */
+const WIKIMEDIA_THUMB_STEPS = [120, 250, 330, 500, 960, 1280] as const;
+/** Width we ask for when we pick the size ourselves (hero is ~128px tall). */
+const HERO_THUMB_WIDTH = 330;
+
+/**
+ * Snap a `…/thumb/…/<N>px-<file>` upload.wikimedia.org URL up to the next
+ * standard thumbnail width. Non-thumbnail URLs (originals, other hosts)
+ * are returned unchanged.
+ */
+export function standardizeWikimediaThumbUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  if (parsed.hostname !== "upload.wikimedia.org") return url;
+  if (!parsed.pathname.includes("/thumb/")) return url;
+  const match = parsed.pathname.match(/\/(\d+)px-([^/]+)$/);
+  if (!match) return url;
+  const width = Number(match[1]);
+  if ((WIKIMEDIA_THUMB_STEPS as readonly number[]).includes(width)) return url;
+  const step =
+    WIKIMEDIA_THUMB_STEPS.find((w) => w >= width) ??
+    WIKIMEDIA_THUMB_STEPS[WIKIMEDIA_THUMB_STEPS.length - 1];
+  parsed.pathname = parsed.pathname.replace(/\/\d+px-([^/]+)$/, `/${step}px-$1`);
+  return parsed.toString();
+}
+
 function pickImageFromSummary(summary: WikipediaSummary | undefined): CityImage | undefined {
   if (!summary) return undefined;
   // Prefer the thumbnail (~320px) — the hero band is only ~128px tall, so the
   // full-resolution `originalimage` (often >5MP) wastes bandwidth.
   const source = summary.thumbnail?.source ?? summary.originalimage?.source;
   if (!source) return undefined;
-  return { url: source, pageUrl: summary.content_urls?.desktop?.page };
+  return {
+    url: standardizeWikimediaThumbUrl(source),
+    pageUrl: summary.content_urls?.desktop?.page,
+  };
 }
 
 /**

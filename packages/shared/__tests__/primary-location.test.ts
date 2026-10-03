@@ -348,4 +348,31 @@ describe("primaryLocationFor", () => {
       expect(result?.kind).toBe("city");
     });
   });
+
+  describe("airport-dataset country fallback", () => {
+    it("resolves country for cities outside the hand-written table", () => {
+      const result = primaryLocationFor({
+        days: [day("2027-04-12", "San Juan"), day("2027-04-13", "San Juan")],
+      });
+      expect(result?.city).toBe("San Juan");
+      expect(result?.countryCode).toBe("PR");
+      expect(result?.country).toBe("Puerto Rico");
+    });
+
+    it("skips cities whose name maps to airports in several countries", () => {
+      const result = primaryLocationFor({
+        days: [day("2026-12-26", "Valencia")],
+      });
+      expect(result?.city).toBe("Valencia");
+      expect(result?.countryCode).toBeUndefined();
+    });
+
+    it("keeps the hand-written table authoritative", () => {
+      const result = primaryLocationFor({
+        days: [day("2026-12-26", "Madrid")],
+      });
+      expect(result?.countryCode).toBe("ES");
+      expect(result?.country).toBe("Spain");
+    });
+  });
 });
