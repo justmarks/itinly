@@ -1,7 +1,7 @@
 /**
  * Same-origin proxy for Wikimedia trip-card photos.
  *
- * `GET /api/wiki-image?url=<upload.wikimedia.org URL>`
+ * `GET /api/wiki-image?url=<thumb. or upload.wikimedia.org URL>`
  *
  * iOS Safari resolved the Wikipedia photo URL fine but then failed to
  * load the image itself — with and without `crossorigin` — while
@@ -11,11 +11,12 @@
  * client IPs (iCloud Private Relay). `CityHeroImage` tries this first and
  * falls back to loading Wikimedia directly.
  *
- * Locked down to `https://upload.wikimedia.org/wikipedia/...` image
- * responses so it can't be used as an open proxy.
+ * Locked down to `https://{thumb,upload}.wikimedia.org/wikipedia/...`
+ * image responses so it can't be used as an open proxy.
  */
 
-const ALLOWED_HOST = "upload.wikimedia.org";
+import { isWikimediaImageHost } from "@/lib/wikimedia-hosts";
+
 const MAX_BYTES = 5 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 8_000;
 
@@ -40,7 +41,7 @@ function parseTarget(raw: string | null): URL | null {
     return null;
   }
   if (target.protocol !== "https:") return null;
-  if (target.hostname !== ALLOWED_HOST) return null;
+  if (!isWikimediaImageHost(target.hostname)) return null;
   if (target.port !== "" || target.username !== "" || target.password !== "") {
     return null;
   }

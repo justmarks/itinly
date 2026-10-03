@@ -249,6 +249,7 @@ function isWikiImageProxy(url) {
 function isWikimediaImage(url) {
   return (
     url.hostname === "upload.wikimedia.org" ||
+    url.hostname === "thumb.wikimedia.org" ||
     url.hostname.endsWith(".wikipedia.org")
   );
 }
