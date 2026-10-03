@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useUpdateTrip } from "@itinly/api-client";
+import { useTrip, useUpdateTrip } from "@itinly/api-client";
 import type { Trip } from "@itinly/shared";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,16 +19,18 @@ import { toastMutationError } from "@/lib/api-error";
 
 /**
  * Desktop picker for the trip card's hero photo (`Trip.coverLocation`).
- * Opened from the trip detail page's overflow menu. Mobile edits the
- * same field inline in `MobileEditTripSheet` — both share
+ * Opened from the trip detail page's overflow menu and the trip-list
+ * card's menu. Takes a trip id (the list only holds summaries) and reads
+ * the full trip from the query cache, fetching it if needed. Mobile edits
+ * the same field inline in `MobileEditTripSheet` — both share
  * `CoverPhotoPreview` so the preview behaves identically.
  */
 export function CoverPhotoDialog({
-  trip,
+  tripId,
   open,
   onOpenChange,
 }: {
-  trip: Trip;
+  tripId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): React.JSX.Element {
@@ -37,10 +40,39 @@ export function CoverPhotoDialog({
         {/* Mounted only while open so each open starts from the latest
             cached value rather than a stale draft. */}
         {open && (
-          <CoverPhotoForm trip={trip} onDone={() => onOpenChange(false)} />
+          <CoverPhotoLoader
+            tripId={tripId}
+            onDone={() => onOpenChange(false)}
+          />
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CoverPhotoLoader({
+  tripId,
+  onDone,
+}: {
+  tripId: string;
+  onDone: () => void;
+}): React.JSX.Element {
+  const { data: trip, error } = useTrip(tripId);
+  if (trip) return <CoverPhotoForm trip={trip} onDone={onDone} />;
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Cover photo</DialogTitle>
+        <DialogDescription>
+          {error ? "Couldn't load this trip." : "Loading trip…"}
+        </DialogDescription>
+      </DialogHeader>
+      {!error && (
+        <div className="flex justify-center py-6 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </div>
+      )}
+    </>
   );
 }
 

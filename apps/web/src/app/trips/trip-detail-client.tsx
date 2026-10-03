@@ -426,7 +426,7 @@ function TripActionsMenu({
 }: {
   tripId: string;
   tripTitle: string;
-  trip: Trip;
+  trip: { id: string };
   onImportEmail: () => void;
   /** Whether to surface the destructive "Delete trip" entry. Owner-only. */
   canDelete: boolean;
@@ -624,7 +624,7 @@ function TripActionsMenu({
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setCoverDialogOpen(true)}>
             <ImageIcon className="mr-2 h-4 w-4" />
-            Cover photo…
+            Change cover photo…
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuSub>
@@ -702,7 +702,7 @@ function TripActionsMenu({
         onProviderChange={handleProviderChange}
       />
       <CoverPhotoDialog
-        trip={trip}
+        tripId={tripId}
         open={coverDialogOpen}
         onOpenChange={setCoverDialogOpen}
       />
