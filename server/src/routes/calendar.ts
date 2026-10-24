@@ -455,6 +455,7 @@ export function createCalendarRoutes(
 
     let removed = 0;
     let failed = 0;
+    let kept = 0;
     if (deleteEvents) {
       const resolved = await resolvers.resolveCalendarConnector(req, parseProviderQuery(req));
       if (!resolved) {
@@ -469,10 +470,11 @@ export function createCalendarRoutes(
       );
       removed = result.removed;
       failed = result.failed;
+      kept = result.kept ?? 0;
     }
 
     await userStorage.deleteTripUserCalendarSync(tripId, userId);
-    res.json({ removed, failed });
+    res.json(kept > 0 ? { removed, failed, kept } : { removed, failed });
   });
 
   return router;

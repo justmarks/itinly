@@ -21,6 +21,11 @@ export interface CalendarSyncResult {
 export interface CalendarUnsyncResult {
   removed: number;
   failed: number;
+  /**
+   * Events left on the calendar because other people were invited to
+   * them. Omitted when zero.
+   */
+  kept?: number;
 }
 
 function buildClient(accessToken: string): calendar_v3.Calendar {
@@ -676,7 +681,45 @@ export async function syncSegmentToCalendar(
 }
 
 /**
+ * True when the event is organized by the user and has invitees other
+ * than the user. Deleting such an event would cancel it for the guests,
+ * so callers leave it in place instead. Events organized by someone else
+ * (e.g. airline-added) are fine to delete — that only removes the user's
+ * own copy.
+ */
+function hasOtherGuests(event: calendar_v3.Schema$Event): boolean {
+  if (event.organizer && event.organizer.self === false) return false;
+  return (event.attendees ?? []).some((a) => !a.self && !a.resource);
+}
+
+type DeleteOutcome = "removed" | "gone" | "kept";
+
+/**
+ * Delete one event unless it has guests. Looks the event up first; a
+ * failed lookup propagates so the caller treats it as a failure rather
+ * than risk cancelling an invite.
+ */
+async function deleteEventUnlessGuests(
+  cal: calendar_v3.Calendar,
+  calendarId: string,
+  eventId: string,
+): Promise<DeleteOutcome> {
+  try {
+    const { data } = await cal.events.get({ calendarId, eventId });
+    if (hasOtherGuests(data)) return "kept";
+    await cal.events.delete({ calendarId, eventId });
+    return "removed";
+  } catch (err: unknown) {
+    const status = (err as { code?: number }).code ?? (err as { status?: number }).status;
+    if (status === 404 || status === 410) return "gone";
+    throw err;
+  }
+}
+
+/**
  * Delete a single calendar event. Treats 404/410 as success (already gone).
+ * Events that other people were invited to are left alone; returns false
+ * in that case, true otherwise.
  *
  * Optional `ctx` lets callers carry user/trip identifiers into the log
  * line — without it, prod logs would show a bare `event abc123` with no
@@ -689,17 +732,18 @@ export async function deleteCalendarEvent(
   calendarId: string,
   eventId: string,
   ctx?: SyncLogContext,
-): Promise<void> {
+): Promise<boolean> {
   const cal = buildClient(accessToken);
   const prefix = ctx ? logPrefix(ctx) : "[calendar-sync]";
-  try {
-    await cal.events.delete({ calendarId, eventId });
-    console.log(`${prefix} Removed  event ${eventId}`);
-  } catch (err: unknown) {
-    const status = (err as { code?: number }).code ?? (err as { status?: number }).status;
-    if (status !== 404 && status !== 410) throw err;
-    console.log(`${prefix} Already gone event ${eventId}`);
+  const outcome = await deleteEventUnlessGuests(cal, calendarId, eventId);
+  if (outcome === "kept") {
+    console.log(`${prefix} Kept     event ${eventId} (has invited guests)`);
+    return false;
   }
+  console.log(
+    outcome === "removed" ? `${prefix} Removed  event ${eventId}` : `${prefix} Already gone event ${eventId}`,
+  );
+  return true;
 }
 
 export async function unsyncTripFromCalendar(
@@ -716,20 +760,19 @@ export async function unsyncTripFromCalendar(
     for (const segment of day.segments) {
       if (!segment.calendarEventId) continue;
       try {
-        await cal.events.delete({ calendarId, eventId: segment.calendarEventId });
-        result.removed++;
-        console.log(`${prefix} Removed  "${segment.title}" (${segment.calendarEventId})`);
-      } catch (err: unknown) {
-        const status =
-          (err as { code?: number }).code ??
-          (err as { status?: number }).status;
-        if (status === 404 || status === 410) {
-          result.removed++; // already gone — counts as removed
-          console.log(`${prefix} Already gone "${segment.title}" (${segment.calendarEventId})`);
+        const outcome = await deleteEventUnlessGuests(cal, calendarId, segment.calendarEventId);
+        if (outcome === "kept") {
+          result.kept = (result.kept ?? 0) + 1;
+          console.log(`${prefix} Kept     "${segment.title}" (${segment.calendarEventId}) — has invited guests`);
         } else {
-          result.failed++;
-          console.warn(`${prefix} Failed to remove "${segment.title}" (${segment.calendarEventId}):`, err);
+          result.removed++; // "gone" counts as removed
+          console.log(
+            `${prefix} ${outcome === "removed" ? "Removed " : "Already gone"} "${segment.title}" (${segment.calendarEventId})`,
+          );
         }
+      } catch (err: unknown) {
+        result.failed++;
+        console.warn(`${prefix} Failed to remove "${segment.title}" (${segment.calendarEventId}):`, err);
       }
     }
   }
