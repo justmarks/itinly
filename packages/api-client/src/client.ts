@@ -505,7 +505,7 @@ export class ApiClient {
   unsyncCalendar(
     tripId: string,
     opts?: { calendarId?: string; deleteEvents?: boolean; provider?: "google" | "microsoft" },
-  ): Promise<{ removed: number; failed: number }> {
+  ): Promise<{ removed: number; failed: number; kept?: number }> {
     const params = new URLSearchParams();
     if (opts?.calendarId) params.set("calendarId", opts.calendarId);
     if (opts?.deleteEvents === false) params.set("deleteEvents", "false");
