@@ -66,6 +66,7 @@ interface MsEvent {
   location?: { displayName: string };
   isAllDay?: boolean;
   reminderMinutesBeforeStart?: number;
+  isOrganizer?: boolean;
   attendees?: Array<{
     emailAddress: { address: string; name?: string };
     type?: "required" | "optional" | "resource";
@@ -177,6 +178,19 @@ export function googleEventToMsEvent(
  */
 function calendarPath(calendarId: string): string {
   return calendarId === "primary" ? "/me/calendar" : `/me/calendars/${calendarId}`;
+}
+
+/**
+ * True when the user organizes the event and it has attendees other
+ * than themselves. Our own synced events list the user as the sole
+ * attendee, so that address doesn't count.
+ */
+function hasOtherGuests(event: MsEvent | null | undefined, userEmail?: string): boolean {
+  if (!event || event.isOrganizer === false) return false;
+  const me = userEmail?.toLowerCase();
+  return (event.attendees ?? []).some(
+    (a) => a.type !== "resource" && a.emailAddress.address.toLowerCase() !== me,
+  );
 }
 
 function logPrefix(trip: Trip, userEmail?: string): string {
@@ -350,15 +364,25 @@ export class MicrosoftCalendarConnector implements CalendarConnector {
     const prefix = logPrefix(trip, userEmail);
     let removed = 0;
     let failed = 0;
+    let kept = 0;
     for (const day of trip.days) {
       for (const segment of day.segments) {
         if (!segment.calendarEventId) continue;
         try {
-          await graphRequest(
-            this.accessToken,
-            `${calendarPath(calendarId)}/events/${segment.calendarEventId}`,
-            { method: "DELETE" },
-          );
+          const eventPath = `${calendarPath(calendarId)}/events/${segment.calendarEventId}`;
+          // Leave events other people were invited to; deleting an
+          // organizer's event cancels it for every guest.
+          const existing = await graphRequest<MsEvent>(this.accessToken, eventPath, {
+            query: { $select: "isOrganizer,attendees" },
+          });
+          if (hasOtherGuests(existing, userEmail)) {
+            kept++;
+            console.log(
+              `${prefix} Kept "${segment.title}" (${segment.calendarEventId}) — has invited guests`,
+            );
+            continue;
+          }
+          await graphRequest(this.accessToken, eventPath, { method: "DELETE" });
           removed++;
         } catch (err) {
           // 404 = already gone → still a success from the unsync POV.
@@ -376,9 +400,9 @@ export class MicrosoftCalendarConnector implements CalendarConnector {
       }
     }
     console.log(
-      `${prefix} Unsync done: ${removed} removed, ${failed} failed (calendarId=${calendarId})`,
+      `${prefix} Unsync done: ${removed} removed, ${kept} kept, ${failed} failed (calendarId=${calendarId})`,
     );
-    return { removed, failed };
+    return kept > 0 ? { removed, failed, kept } : { removed, failed };
   }
 
   /**

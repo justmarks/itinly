@@ -313,6 +313,9 @@ describe("MicrosoftCalendarConnector", () => {
 
   describe("unsyncTrip", () => {
     it("DELETEs tracked events and counts removals", async () => {
+      fetchMock.mockResolvedValueOnce(
+        makeJsonResponse(200, { isOrganizer: true, attendees: [] }),
+      );
       fetchMock.mockResolvedValueOnce(makeNoContentResponse());
 
       const conn = new MicrosoftCalendarConnector(ACCESS_TOKEN);
@@ -324,9 +327,31 @@ describe("MicrosoftCalendarConnector", () => {
       expect(result.removed).toBe(1);
       expect(result.failed).toBe(0);
 
-      const [url, init] = fetchMock.mock.calls[0];
+      const [url, init] = fetchMock.mock.calls[1];
       expect(url.toString()).toContain("/me/calendar/events/ms-event-existing");
       expect(init?.method).toBe("DELETE");
+    });
+
+    it("keeps events that other people were invited to", async () => {
+      fetchMock.mockResolvedValueOnce(
+        makeJsonResponse(200, {
+          isOrganizer: true,
+          attendees: [
+            { emailAddress: { address: "me@example.com" }, type: "required" },
+            { emailAddress: { address: "friend@example.com" }, type: "required" },
+          ],
+        }),
+      );
+
+      const conn = new MicrosoftCalendarConnector(ACCESS_TOKEN);
+      const result = await conn.unsyncTrip(
+        TRIP_WITH_SYNCED_SEGMENT,
+        "primary",
+        "me@example.com",
+      );
+
+      expect(result).toEqual({ removed: 0, failed: 0, kept: 1 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it("treats a 404 on delete as already-removed (success)", async () => {
